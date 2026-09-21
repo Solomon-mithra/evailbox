@@ -33,7 +33,7 @@ Private repository: https://github.com/Solomon-mithra/jevinbox
 
 The account is on Vercel Hobby, which rejected sub-daily cron schedules. The default `vercel.json` now disables scheduled jobs for the demo; `vercel.live.json` preserves the full live configuration. No plan was upgraded.
 
-The Vercel project is `jevinbox` in `fnu-solomon-mithras-projects`. It is configured for **demo mode**. Demo URL: https://jevinbox.vercel.app. The Vercel build completed successfully and the deployment is ready. HTTP checks verify the public pages and health endpoint; live APIs deliberately return `503 DEMO_MODE`, and unauthenticated cron requests return `401`. Authenticated demo cron requests return a skipped result. The latest code will also be pushed through Git integration.
+The Vercel project is `jevinbox` in `fnu-solomon-mithras-projects`. It is configured for **demo mode**. Demo URL: https://jevinbox.vercel.app. The Vercel build completed successfully and the deployment is ready. HTTP checks verify the public pages and health endpoint; live APIs deliberately return `503 DEMO_MODE`, and unauthenticated cron requests return `401`. Authenticated demo cron requests return a skipped result. The repository is pushed to `main`. Vercel Git integration could not be linked: the account requires a GitHub Login Connection. Manual CLI deployments work; automatic deployment from Git remains pending that external account setup.
 
 No real email has been read, sent, modified or deleted as part of implementation. No live Jev request has been made. Service credentials were requested during deployment; they have not yet been supplied. Locally generated encryption, cron and VAPID secrets are in ignored environment files and must not be committed.
 

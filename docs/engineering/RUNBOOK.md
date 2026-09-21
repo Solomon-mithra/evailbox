@@ -103,3 +103,7 @@ The local PGlite suite exercises the committed migration, RLS policies, credenti
 ### Confirmed Hobby deployment configuration
 
 Use the checked-in root `vercel.json` for the demo; it contains no cron schedules. `vercel.live.json` contains the daily sync, every-minute worker, and quarter-hour digest schedules. Before enabling live cron on a compatible plan, copy `vercel.live.json` to `vercel.json`, commit, and deploy. A CLI-only `--local-config` override did not prevent the remote Next.js build from reading the root cron configuration in the observed deployment. Environment files are excluded by `.vercelignore`; set live variables in Vercel.
+
+### Confirmed Git integration prerequisite
+
+The private GitHub repository was created and pushed successfully. `vercel git connect https://github.com/Solomon-mithra/jevinbox` returned HTTP 400 because the Vercel account needs a GitHub Login Connection. Add that connection in Vercel account settings, then rerun the command. Until then, CI runs on GitHub and deployment uses `vercel deploy --prod --yes`. Do not assume `git push` deploys this project before the connection is verified.
