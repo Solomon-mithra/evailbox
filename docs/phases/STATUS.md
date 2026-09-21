@@ -15,6 +15,8 @@ Updated: 2026-09-21. This is a delivered implementation with an isolated demo. L
 - Digest tests cover immutable retries, pagination beyond 200 matches, cutoff boundaries, timezone/midnight scheduling, HTML escaping and deadlines.
 - Browser visual checks completed for desktop inbox and email details. Browser automation then stopped on an explicit user-control signal. Remaining interaction, keyboard, screen-reader and mobile checks are pending. See [desktop capture](../engineering/desktop.png).
 
+GitHub CI and the deployed health-monitor workflow passed for commit `b67fac1`. The first 24 hours of monitoring have not yet elapsed.
+
 ## Phase acceptance
 
 | Phase | Implementation                                                                          | External acceptance                                                         |
@@ -33,7 +35,7 @@ Private repository: https://github.com/Solomon-mithra/jevinbox
 
 The account is on Vercel Hobby, which rejected sub-daily cron schedules. The default `vercel.json` now disables scheduled jobs for the demo; `vercel.live.json` preserves the full live configuration. No plan was upgraded.
 
-The Vercel project is `jevinbox` in `fnu-solomon-mithras-projects`. It is configured for **demo mode**. Demo URL: https://jevinbox.vercel.app. The Vercel build completed successfully and the deployment is ready. HTTP checks verify the public pages and health endpoint; live APIs deliberately return `503 DEMO_MODE`, and unauthenticated cron requests return `401`. Authenticated demo cron requests return a skipped result. The repository is pushed to `main`. Vercel Git integration could not be linked: the account requires a GitHub Login Connection. Manual CLI deployments work; automatic deployment from Git remains pending that external account setup.
+The Vercel project is `jevinbox` in `fnu-solomon-mithras-projects`. It is configured for **demo mode**. Demo URL: https://jevinbox.vercel.app. The Vercel build completed successfully and the deployment is ready. HTTP checks verify the public pages and health endpoint; live APIs deliberately return `503 DEMO_MODE`, and unauthenticated cron requests return `401`. Authenticated demo cron requests return a skipped result. The repository is pushed to `main`. Vercel Git integration could not be linked: the account requires a GitHub Login Connection. The initial CLI demo deployment succeeded before the repository commits. The latest committed release was blocked by Vercel: “The deployment was blocked because the commit author doesn’t have permission to create deployments for this project.” The existing demo remains available, but it does not include the latest committed UI and monitoring changes. An authorized operator must resolve the GitHub identity/project deployment permission before redeploying; automatic deployment from Git also remains pending the Login Connection.
 
 No real email has been read, sent, modified or deleted as part of implementation. No live Jev request has been made. Service credentials were requested during deployment; they have not yet been supplied. Locally generated encryption, cron and VAPID secrets are in ignored environment files and must not be committed.
 
