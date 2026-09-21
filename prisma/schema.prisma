@@ -1,0 +1,161 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+enum Priority {
+  HIGH
+  MEDIUM
+  LOW
+}
+enum Provider {
+  GMAIL
+  OUTLOOK
+}
+model User {
+  id String @id @db.Uuid
+  email String @unique
+  lastBackgroundSyncAt DateTime?
+  workRequested Boolean @default(false)
+  workRevision Int @default(0)
+  workLeaseId String?
+  workLeaseUntil DateTime?
+  workNotBefore DateTime @default(now())
+  workFailures Int @default(0)
+  createdAt DateTime @default(now())
+  tags Tag[]
+  accounts EmailAccount[]
+  emails Email[]
+  classifications EmailClassification[]
+  notificationPref NotificationPref?
+  subscriptions PushSubscription[]
+  digestHistory DigestHistory[]
+  @@index([workRequested,workNotBefore,lastBackgroundSyncAt])
+  @@map("users")
+}
+model Tag {
+  id String @id @default(cuid())
+  userId String @db.Uuid
+  name String
+  nameKey String
+  description String @default("")
+  prompt String
+  priority Priority @default(MEDIUM)
+  keywords String[] @default([])
+  senders String[] @default([])
+  version Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+  classifications EmailClassification[]
+  @@unique([userId,nameKey])
+  @@unique([id,userId])
+  @@map("tags")
+}
+model EmailAccount {
+  id String @id @default(cuid())
+  userId String @db.Uuid
+  provider Provider
+  email String
+  accessToken String
+  refreshToken String?
+  expiresAt DateTime
+  cursor String?
+  rescanStartedAt DateTime?
+  lastSync DateTime?
+  syncError String?
+  syncRequested Boolean @default(true)
+  syncRevision Int @default(0)
+  syncLeaseUntil DateTime?
+  syncLeaseId String?
+  createdAt DateTime @default(now())
+  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+  emails Email[]
+  @@unique([userId,provider,email])
+  @@unique([id,userId])
+  @@map("email_accounts")
+}
+model Email {
+  id String @id @default(cuid())
+  userId String @db.Uuid
+  accountId String
+  lastSeenAt DateTime @default(now())
+  providerMessageId String
+  subject String
+  sender String
+  senderName String
+  snippet String
+  body String?
+  receivedAt DateTime
+  isRead Boolean @default(false)
+  handled Boolean @default(false)
+  webUrl String
+  createdAt DateTime @default(now())
+  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+  account EmailAccount @relation(fields:[accountId,userId],references:[id,userId],onDelete:Cascade)
+  classifications EmailClassification[]
+  @@unique([accountId,providerMessageId])
+  @@unique([id,userId])
+  @@index([userId,receivedAt])
+  @@map("emails")
+}
+model EmailClassification {
+  id String @id @default(cuid())
+  userId String @db.Uuid
+  emailId String
+  tagId String
+  tagVersion Int
+  matched Boolean
+  confidence Float
+  decision String
+  reasoning String
+  notifiedAt DateTime?
+  createdAt DateTime @default(now())
+  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+  email Email @relation(fields:[emailId,userId],references:[id,userId],onDelete:Cascade)
+  tag Tag @relation(fields:[tagId,userId],references:[id,userId],onDelete:Cascade)
+  @@unique([emailId,tagId])
+  @@index([userId,matched,confidence])
+  @@map("email_classifications")
+}
+model NotificationPref {
+  id String @id @default(cuid())
+  userId String @unique @db.Uuid
+  browserPush Boolean @default(false)
+  dailyDigest Boolean @default(false)
+  digestTime String @default("09:00")
+  timezone String @default("UTC")
+  minConfidence Int @default(80)
+  refreshMinutes Int @default(5)
+  unsubscribeToken String @unique @default(uuid())
+  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+  @@map("notification_prefs")
+}
+model PushSubscription {
+  id String @id @default(cuid())
+  userId String @db.Uuid
+  endpoint String @unique
+  p256dh String
+  auth String
+  createdAt DateTime @default(now())
+  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+  @@index([userId])
+  @@map("push_subscriptions")
+}
+model DigestHistory {
+  id String @id @default(cuid())
+  userId String @db.Uuid
+  localDate String
+  status String @default("pending")
+  leaseUntil DateTime
+  sentAt DateTime?
+  providerId String?
+  windowEnd DateTime @default(now())
+  payload Json?
+  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+  @@unique([userId,localDate])
+  @@map("digest_history")
+}
