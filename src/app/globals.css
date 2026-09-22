@@ -1376,10 +1376,6 @@ h1 {
   background: var(--cyan-soft);
   color: #155ba5;
 }
-.outlook-letter {
-  font-size: 1.5rem;
-  font-weight: 550;
-}
 .account-main {
   flex: 1;
   min-width: 0;

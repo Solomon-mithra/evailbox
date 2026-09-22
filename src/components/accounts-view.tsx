@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
-import { Mail, RefreshCw, Plus, ShieldCheck, Unplug, Check } from 'lucide-react';
+import Image from 'next/image';
+import { RefreshCw, Plus, ShieldCheck, Unplug, Check } from 'lucide-react';
 import { useWorkspace, useAction } from '@/hooks/useFetch';
 import { useDemo } from './providers';
 import { useWorkspaceSelection } from './workspace-selection';
@@ -12,6 +13,21 @@ import { EmptyState, ErrorState } from './states';
 import type { EmailAccount } from '@/types';
 import { relativeTime } from '@/lib/utils';
 import { toast } from 'sonner';
+
+function ProviderLogo({ provider }: { provider: EmailAccount['provider'] }) {
+  return (
+    <Image
+      src={provider === 'GMAIL' ? '/brands/gmail.svg' : '/brands/outlook.svg'}
+      alt=""
+      aria-hidden="true"
+      width={28}
+      height={28}
+      unoptimized
+      style={{ objectFit: 'contain' }}
+    />
+  );
+}
+
 export function AccountsView({ embedded = false }: { embedded?: boolean }) {
   const { workspace, name } = useWorkspaceSelection();
   const query = useWorkspace(),
@@ -53,11 +69,7 @@ export function AccountsView({ embedded = false }: { embedded?: boolean }) {
             {query.data?.accounts.map((a) => (
               <article className="account-card" key={a.id}>
                 <span className={`provider-mark provider-${a.provider.toLowerCase()}`}>
-                  {a.provider === 'GMAIL' ? (
-                    <Mail size={26} />
-                  ) : (
-                    <span className="outlook-letter">O</span>
-                  )}
+                  <ProviderLogo provider={a.provider} />
                 </span>
                 <div className="account-main">
                   <h3>{a.email}</h3>
@@ -118,7 +130,7 @@ export function AccountsView({ embedded = false }: { embedded?: boolean }) {
           <div className="connect-options">
             <button onClick={() => connect('gmail')} className="connect-card">
               <span className="provider-mark provider-gmail">
-                <Mail size={23} />
+                <ProviderLogo provider="GMAIL" />
               </span>
               <div>
                 <strong>Connect Gmail</strong>
@@ -128,7 +140,7 @@ export function AccountsView({ embedded = false }: { embedded?: boolean }) {
             </button>
             <button onClick={() => connect('outlook')} className="connect-card">
               <span className="provider-mark provider-outlook">
-                <span className="outlook-letter">O</span>
+                <ProviderLogo provider="OUTLOOK" />
               </span>
               <div>
                 <strong>Connect Outlook</strong>
