@@ -39,6 +39,6 @@
 - [x] Record scoped theme, tag-card and landing browser checks for responsive layout, keyboard interaction, text enlargement and automated accessibility.
 - [ ] Complete the final browser appearance pass after the latest copy/background/logo changes, manual screen-reader review and live end-to-end acceptance. See [current evidence](STATUS.md).
 - [x] Create the private GitHub repository, deploy the initial demo to Vercel and document required live credentials.
-- [ ] Resolve the recorded Vercel identity/deployment blocker and publish the latest approved revision; recent UI refinements remain local.
+- [ ] Resolve the recorded Vercel identity/deployment blocker and publish the latest approved revision; recent UI refinements are on `main` but remain undeployed.
 - [x] Record actual validation evidence, remaining external gates, rollback and 24-hour monitoring procedure.
       Acceptance: no unverified OAuth, delivery, cron execution or production database checks are reported as passing; no work proceeds beyond Phase 6.

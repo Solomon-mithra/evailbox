@@ -46,7 +46,7 @@ Browser control returned to the user before the final landing-copy, background a
 
 ## Deployment boundary
 
-Existing private repository: [Solomon-mithra/jevinbox](https://github.com/Solomon-mithra/jevinbox). The historical repository name, Vercel project `jevinbox` in `fnu-solomon-mithras-projects`, and [demo URL](https://jevinbox.vercel.app) have not been renamed. The product rename does not change Jev's model ID or `JEV_*` environment variables.
+Private repository: [Solomon-mithra/evailbox](https://github.com/Solomon-mithra/evailbox), renamed from `jevinbox` on 2026-09-21 with visibility verified as private. `main` is the default branch and contains all completed work; no other branches or open PRs required merging. The Vercel project `jevinbox` in `fnu-solomon-mithras-projects` and [demo URL](https://jevinbox.vercel.app) retain their existing names. The rename does not change Jev's model ID or `JEV_*` environment variables.
 
 The following are the last recorded deployment observations, not a new deployment verification:
 
@@ -55,6 +55,6 @@ The following are the last recorded deployment observations, not a new deploymen
 - The connected Vercel Hobby account rejected sub-daily cron. The root `vercel.json` disables demo jobs; `vercel.live.json` preserves live schedules. No plan was upgraded.
 - Vercel Git linking required a GitHub Login Connection. A subsequent deployment was blocked because the commit author lacked project deployment permission. An authorized operator must resolve those identity/project permissions; automatic Git deployment remains unverified.
 
-The recent UI refinements are committed locally and have not been pushed or deployed in this update. Do not assume the existing hosted demo contains them. Neither migration has been applied to a live Supabase project as part of this work.
+The recent UI refinements are included in this `main` release, and all 102 tests were rechecked before GitHub publication. GitHub publication is separate from deployment: the existing hosted demo has not been updated with these changes. Neither migration has been applied to a live Supabase project as part of this work.
 
 No real email has been read, sent, modified or deleted during implementation, and no live Jev request has been made. Required live service credentials have not been supplied. Locally generated secrets remain in ignored environment files. Live launch depends on the [runbook](../engineering/RUNBOOK.md) and [Phase 6 acceptance matrix](PHASE_6.md); implementation scope remains Phases 0–6.
