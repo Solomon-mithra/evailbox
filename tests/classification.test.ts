@@ -25,10 +25,16 @@ vi.mock('@/lib/db', () => {
   };
   return {
     db: {
-      tag: { findMany: async () => tags },
+      tag: {
+        findMany: async ({ where }: { where: { workspace: string } }) => {
+          expect(['PERSONAL', 'WORK']).toContain(where.workspace);
+          return where.workspace === 'PERSONAL' ? tags : [];
+        },
+      },
       email: {
-        findMany: async ({ take }: { take: number }) =>
-          Array.from({ length: state.total }, (_, i) => ({
+        findMany: async ({ take, where }: { take: number; where: { workspace: string } }) => {
+          expect(where.workspace).toBe('PERSONAL');
+          return Array.from({ length: state.total }, (_, i) => ({
             id: 'e' + i,
             subject: 'Email',
             sender: 'sender@example.com',
@@ -40,7 +46,8 @@ vi.mock('@/lib/db', () => {
             }),
           }))
             .filter((e) => e.classifications.length < tags.length)
-            .slice(0, take),
+            .slice(0, take);
+        },
         count: async () =>
           Array.from({ length: state.total }, (_, i) =>
             tags.some((t) => !state.saved.has('e' + i + ':' + t.id)),
@@ -101,4 +108,13 @@ it('leaves failed calls pending for the next worker', async () => {
   expect(result.errors).toBeGreaterThan(0);
   expect(result.remaining).toBe(1);
   expect(state.saved.size).toBe(0);
+});
+
+it('does not run Personal rules when only Work is requested', async () => {
+  expect(await classifyEmails('user', { workspace: 'WORK' })).toEqual({
+    classified: 0,
+    errors: 0,
+    remaining: 0,
+  });
+  expect(state.evaluate).not.toHaveBeenCalled();
 });

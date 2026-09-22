@@ -2,14 +2,21 @@
 import { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { useWorkspace } from './useFetch';
+import { useWorkspaceSelection } from '@/components/workspace-selection';
 import { useDemo } from '@/components/providers';
 
 /** Notify only about newly observed matches after establishing a baseline. */
 export function usePriorityToasts() {
   const { data } = useWorkspace();
+  const { workspace } = useWorkspaceSelection();
+  const previousWorkspace = useRef(workspace);
   const demo = useDemo();
   const seen = useRef<Set<string> | null>(null);
   useEffect(() => {
+    if (previousWorkspace.current !== workspace) {
+      seen.current = null;
+      previousWorkspace.current = workspace;
+    }
     if (!data || demo) return;
     if (!data.preferences.browserPush) {
       seen.current = null;
@@ -35,5 +42,5 @@ export function usePriorityToasts() {
       }
       seen.current.add(match.id);
     }
-  }, [data, demo]);
+  }, [data, demo, workspace]);
 }

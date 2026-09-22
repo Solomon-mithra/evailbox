@@ -3,6 +3,8 @@ import { useState } from 'react';
 import { Mail, RefreshCw, Plus, ShieldCheck, Unplug, Check } from 'lucide-react';
 import { useWorkspace, useAction } from '@/hooks/useFetch';
 import { useDemo } from './providers';
+import { useWorkspaceSelection } from './workspace-selection';
+import { workspacePath } from '@/lib/workspace-selection';
 import { Button } from './ui/button';
 import { Skeleton } from './ui/loader';
 import { ConfirmDialog } from './confirm-dialog';
@@ -11,18 +13,20 @@ import type { EmailAccount } from '@/types';
 import { relativeTime } from '@/lib/utils';
 import { toast } from 'sonner';
 export function AccountsView({ embedded = false }: { embedded?: boolean }) {
+  const { workspace, name } = useWorkspaceSelection();
   const query = useWorkspace(),
     mutation = useAction(),
     demo = useDemo();
   const [disconnect, setDisconnect] = useState<EmailAccount | null>(null);
   function connect(provider: string) {
     if (demo) {
-      toast.info(
-        'Live connections need Supabase and provider credentials. This workspace uses sample data.',
-      );
+      toast.info('Connecting real inboxes is unavailable in demo mode.');
       return;
     }
-    window.location.assign(new URL(`/api/accounts/${provider}/auth`, window.location.origin).href);
+    window.location.assign(
+      new URL(workspacePath(`/api/accounts/${provider}/auth`, workspace), window.location.origin)
+        .href,
+    );
   }
   return (
     <>
@@ -30,7 +34,7 @@ export function AccountsView({ embedded = false }: { embedded?: boolean }) {
         <div className="page-heading">
           <div>
             <h1>Accounts</h1>
-            <p>Manage the inboxes connected to your workspace.</p>
+            <p>Manage the inboxes connected to {name}.</p>
           </div>
         </div>
       )}

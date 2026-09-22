@@ -1,6 +1,9 @@
 import type { Workspace, Tag, Email, Filters } from '@/types';
 import type { TagInput } from './validation';
+import type { WorkspaceId } from './workspace-selection';
 const storageKey = 'jevinbox-demo-v1';
+const workspaceKey = (workspace: WorkspaceId) =>
+  workspace === 'PERSONAL' ? storageKey : storageKey + '-work';
 const tags: Tag[] = [
   {
     id: 'immigration',
@@ -183,7 +186,7 @@ export function seedDemo(): Workspace {
   );
   return {
     user: { id: 'demo-user', email: 'alex@example.com' },
-    tags,
+    tags: structuredClone(tags),
     accounts: [
       {
         id: 'gmail',
@@ -214,13 +217,20 @@ export function seedDemo(): Workspace {
     pageSize: 50,
   };
 }
-export function readDemo(): Workspace {
+export function readDemo(workspace: WorkspaceId = 'PERSONAL'): Workspace {
+  const key = workspaceKey(workspace);
   try {
-    const saved = localStorage.getItem(storageKey);
+    const saved = localStorage.getItem(key);
     if (saved) return JSON.parse(saved) as Workspace;
   } catch {}
   const fresh = seedDemo();
-  localStorage.setItem(storageKey, JSON.stringify(fresh));
+  if (workspace === 'WORK') {
+    fresh.tags = [];
+    fresh.accounts = [];
+    fresh.emails = [];
+    fresh.total = 0;
+  }
+  localStorage.setItem(key, JSON.stringify(fresh));
   return fresh;
 }
 export function filterWorkspace(workspace: Workspace, filters: Filters): Workspace {
@@ -274,8 +284,13 @@ export function filterWorkspace(workspace: Workspace, filters: Filters): Workspa
     page,
   };
 }
-export function mutateDemo(path: string, method: string, body: unknown) {
-  const w = readDemo();
+export function mutateDemo(
+  path: string,
+  method: string,
+  body: unknown,
+  workspace: WorkspaceId = 'PERSONAL',
+) {
+  const w = readDemo(workspace);
   const data = (body ?? {}) as Record<string, unknown>;
   const id = path.split('/').at(-1);
   if (path === '/api/tags' && method === 'POST') {
@@ -332,7 +347,14 @@ export function mutateDemo(path: string, method: string, body: unknown) {
     }
   } else if (path === '/api/user') {
     localStorage.removeItem(storageKey);
+    localStorage.removeItem(workspaceKey('WORK'));
     return;
   }
-  localStorage.setItem(storageKey, JSON.stringify(w));
+  localStorage.setItem(workspaceKey(workspace), JSON.stringify(w));
+  if (path === '/api/settings') {
+    const other = workspace === 'PERSONAL' ? 'WORK' : 'PERSONAL';
+    const sibling = readDemo(other);
+    sibling.preferences = { ...w.preferences };
+    localStorage.setItem(workspaceKey(other), JSON.stringify(sibling));
+  }
 }

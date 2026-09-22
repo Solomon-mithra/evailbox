@@ -23,6 +23,8 @@ import { EmailDetail } from './email-detail';
 import { EmptyState, ErrorState } from './states';
 import { relativeTime } from '@/lib/utils';
 import { api } from '@/lib/api';
+import { useWorkspaceSelection } from './workspace-selection';
+import { workspacePath } from '@/lib/workspace-selection';
 import type { Email, Tag, Filters } from '@/types';
 export function EmailRow({
   email,
@@ -66,6 +68,7 @@ export function EmailRow({
   );
 }
 export function InboxView() {
+  const { workspace, select } = useWorkspaceSelection();
   const [now] = useState(() => Date.now());
   const [search, setSearch] = useState(''),
     [debounced, setDebounced] = useState(''),
@@ -91,17 +94,21 @@ export function InboxView() {
     demo = useDemo();
   const data = query.data;
   useEffect(() => {
-    const id = new URLSearchParams(window.location.search).get('email');
+    const params = new URLSearchParams(window.location.search);
+    const linked = params.get('workspace');
+    if (linked && linked !== workspace) return;
+    const id = params.get('email');
     if (!id || !data) return;
     const found = data.emails.find((e) => e.id === id);
     if (found) setSelected(found);
     else if (!demo)
       void api
-        .get<Email>(`/api/emails/${encodeURIComponent(id)}`)
+        .get<Email>(workspacePath(`/api/emails/${encodeURIComponent(id)}`, workspace))
         .then(setSelected)
         .catch(() => toast.error('This email is unavailable.'));
+    select(workspace);
     window.history.replaceState(null, '', window.location.pathname);
-  }, [data, demo]);
+  }, [data, demo, workspace, select]);
   const change = (key: keyof Filters, value: string) =>
     setFilters((f) => ({ ...f, [key]: value, page: 0 }));
   const isFiltered = !!(search || filters.tag || filters.account || filters.range !== 'all');

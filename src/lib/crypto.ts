@@ -1,4 +1,5 @@
 import 'server-only';
+import { workspaceIds, type WorkspaceId } from './workspace-selection';
 import { createCipheriv, createDecipheriv, randomBytes, timingSafeEqual } from 'node:crypto';
 function key() {
   const value = process.env.ENCRYPTION_SECRET_KEY;
@@ -37,10 +38,12 @@ export function createOAuthState(
   provider: string,
   verifier: string,
   now = Date.now(),
+  workspace: WorkspaceId = 'PERSONAL',
 ) {
   return encrypt(
     JSON.stringify({
       userId,
+      workspace,
       provider,
       verifier,
       createdAt: now,
@@ -61,5 +64,7 @@ export function verifyOAuthState(value: string, userId: string, provider: string
     d.createdAt > Date.now() + 30000
   )
     throw new Error('Expired or invalid OAuth state');
-  return { verifier: d.verifier };
+  const workspace = d.workspace ?? 'PERSONAL';
+  if (!workspaceIds.includes(workspace as WorkspaceId)) throw new Error('Invalid workspace');
+  return { verifier: d.verifier, workspace: workspace as WorkspaceId };
 }

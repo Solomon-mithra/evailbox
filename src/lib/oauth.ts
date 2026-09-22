@@ -7,11 +7,16 @@ import { exchangeCode, getAuthorizationUrl, getMailboxIdentity, type Provider } 
 import { requestWork } from './work-queue';
 import { db } from './db';
 import { ApiError } from './errors';
+import type { WorkspaceId } from './workspace-selection';
 const callback = (provider: Provider) =>
   `${process.env.NEXT_PUBLIC_APP_URL}/api/accounts/${provider.toLowerCase()}/callback`;
-export async function beginConnection(provider: Provider, userId: string) {
+export async function beginConnection(
+  provider: Provider,
+  userId: string,
+  workspace: WorkspaceId = 'PERSONAL',
+) {
   const verifier = randomBytes(32).toString('base64url');
-  const state = createOAuthState(userId, provider, verifier);
+  const state = createOAuthState(userId, provider, verifier, Date.now(), workspace);
   const jar = await cookies();
   jar.set(`jev_oauth_${provider}`, state, {
     httpOnly: true,
@@ -39,7 +44,7 @@ export async function finishConnection(provider: Provider, userId: string, url: 
   });
   if (!state || !saved || !constantTimeEqual(state, saved) || !code)
     throw new ApiError(400, 'OAUTH_STATE', 'The connection expired. Please try again.');
-  const { verifier } = verifyOAuthState(state, userId, provider);
+  const { verifier, workspace } = verifyOAuthState(state, userId, provider);
   const tokens = await exchangeCode(provider, {
     code,
     codeVerifier: verifier,
@@ -48,7 +53,7 @@ export async function finishConnection(provider: Provider, userId: string, url: 
   const identity = await getMailboxIdentity(provider, tokens.accessToken);
   const email = identity.email.toLowerCase();
   const existing = await db.emailAccount.findUnique({
-    where: { userId_provider_email: { userId, provider, email } },
+    where: { userId_workspace_provider_email: { userId, workspace, provider, email } },
   });
   if (!tokens.refreshToken && !existing?.refreshToken)
     throw new ApiError(
@@ -57,9 +62,10 @@ export async function finishConnection(provider: Provider, userId: string, url: 
       'Reconnect and grant offline access to enable syncing.',
     );
   await db.emailAccount.upsert({
-    where: { userId_provider_email: { userId, provider, email } },
+    where: { userId_workspace_provider_email: { userId, workspace, provider, email } },
     create: {
       userId,
+      workspace,
       provider,
       email,
       accessToken: encrypt(tokens.accessToken),
@@ -73,6 +79,8 @@ export async function finishConnection(provider: Provider, userId: string, url: 
       syncError: null,
     },
   });
-  await requestWork(userId, { sync: true });
-  return NextResponse.redirect(new URL('/accounts?connected=1', process.env.NEXT_PUBLIC_APP_URL));
+  await requestWork(userId, { sync: true, workspace });
+  return NextResponse.redirect(
+    new URL('/accounts?connected=1&workspace=' + workspace, process.env.NEXT_PUBLIC_APP_URL),
+  );
 }

@@ -110,7 +110,7 @@ describe('digest snapshot and retries', () => {
     await sendDigests();
     const body = JSON.parse(fetchFixture.mock.calls[0][1].body);
     expect(body.html).toContain('Subject-200');
-    expect(body.html).toContain('201 Work');
+    expect(body.html).toContain('201 Personal · Work');
     expect(fixture.db.emailClassification.findMany.mock.calls[0][0].where.createdAt).toEqual({
       gte: previous.windowEnd,
       lt: history.windowEnd,

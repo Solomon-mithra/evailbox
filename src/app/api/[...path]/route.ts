@@ -18,6 +18,7 @@ import { sendDigests } from '@/lib/digest';
 import { notifyUser } from '@/lib/notifications';
 import { constantTimeEqual } from '@/lib/crypto';
 import { isDemo } from '@/lib/env';
+import { workspaceIds } from '@/lib/workspace-selection';
 import { isPushEndpoint } from '@/lib/notification-utils';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -85,19 +86,25 @@ async function dispatch(request: Request) {
     if (error) throw new ApiError(502, 'SIGNOUT_FAILED', 'Could not sign out.');
     return ok({ signedOut: true });
   }
+  const workspace = z.enum(workspaceIds).parse(url.searchParams.get('workspace') ?? 'PERSONAL');
   if (path === 'workspace' && method === 'GET')
     return ok(await getWorkspace(user, url.searchParams));
   if (path === 'tags' && method === 'GET')
-    return ok(await db.tag.findMany({ where: { userId: user.id }, orderBy: { createdAt: 'asc' } }));
+    return ok(
+      await db.tag.findMany({
+        where: { userId: user.id, workspace },
+        orderBy: { createdAt: 'asc' },
+      }),
+    );
   if (path === 'tags' && method === 'POST') {
     const data = tagSchema.parse(await jsonBody(request));
     return ok(
       await db.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT id FROM users WHERE id=${user.id}::uuid FOR UPDATE`;
-        if ((await tx.tag.count({ where: { userId: user.id } })) >= 30)
+        if ((await tx.tag.count({ where: { userId: user.id, workspace } })) >= 30)
           throw new ApiError(409, 'TAG_LIMIT', 'You can create up to 30 tags.');
         const created = await tx.tag.create({
-          data: { ...data, userId: user.id, nameKey: data.name.toLowerCase() },
+          data: { ...data, userId: user.id, workspace, nameKey: data.name.toLowerCase() },
         });
         await tx.user.update({
           where: { id: user.id },
@@ -115,7 +122,7 @@ async function dispatch(request: Request) {
   }
   if (/^tags\/[^/]+$/.test(path)) {
     const id = idSchema.parse(path.split('/')[1]);
-    const tag = await db.tag.findFirst({ where: { id, userId: user.id } });
+    const tag = await db.tag.findFirst({ where: { id, userId: user.id, workspace } });
     if (!tag) throw new ApiError(404, 'NOT_FOUND', 'Tag not found.');
     if (method === 'GET') return ok(tag);
     if (method === 'PATCH') {
@@ -123,14 +130,16 @@ async function dispatch(request: Request) {
       return ok(
         await db.$transaction(async (tx) => {
           const updated = await tx.tag.update({
-            where: { id, userId: user.id },
+            where: { id, userId: user.id, workspace },
             data: {
               ...patch,
               ...(patch.name ? { nameKey: patch.name.toLowerCase() } : {}),
               version: { increment: 1 },
             },
           });
-          await tx.emailClassification.deleteMany({ where: { tagId: id, userId: user.id } });
+          await tx.emailClassification.deleteMany({
+            where: { tagId: id, userId: user.id, workspace },
+          });
           await tx.user.update({
             where: { id: user.id },
             data: {
@@ -145,22 +154,27 @@ async function dispatch(request: Request) {
       );
     }
     if (method === 'DELETE') {
-      await db.tag.delete({ where: { id, userId: user.id } });
+      await db.tag.delete({ where: { id, userId: user.id, workspace } });
       return ok({ deleted: true });
     }
   }
   if (path === 'accounts' && method === 'GET')
     return ok(
-      await db.emailAccount.findMany({ where: { userId: user.id }, select: publicAccount }),
+      await db.emailAccount.findMany({
+        where: { userId: user.id, workspace },
+        select: publicAccount,
+      }),
     );
   if (/^accounts\/(gmail|outlook)\/(auth|callback)$/.test(path) && method === 'GET') {
     const [, provider, action] = path.split('/');
     const p = provider === 'gmail' ? 'GMAIL' : 'OUTLOOK';
-    return action === 'auth' ? beginConnection(p, user.id) : finishConnection(p, user.id, url);
+    return action === 'auth'
+      ? beginConnection(p, user.id, workspace)
+      : finishConnection(p, user.id, url);
   }
   if (/^accounts\/[^/]+$/.test(path) && method === 'DELETE') {
     const result = await db.emailAccount.deleteMany({
-      where: { id: path.split('/')[1], userId: user.id },
+      where: { id: path.split('/')[1], userId: user.id, workspace },
     });
     if (!result.count) throw new ApiError(404, 'NOT_FOUND', 'Account not found.');
     return ok({ deleted: true });
@@ -172,10 +186,10 @@ async function dispatch(request: Request) {
       .parse(await jsonBody(request));
     if (
       accountId &&
-      !(await db.emailAccount.findFirst({ where: { id: accountId, userId: user.id } }))
+      !(await db.emailAccount.findFirst({ where: { id: accountId, userId: user.id, workspace } }))
     )
       throw new ApiError(404, 'NOT_FOUND', 'Account not found.');
-    await requestWork(user.id, { sync: true, accountId });
+    await requestWork(user.id, { sync: true, accountId, workspace });
     try {
       return ok(await processUserWork(user.id));
     } catch (e) {
@@ -191,12 +205,13 @@ async function dispatch(request: Request) {
     const ids = data.emailId ? [data.emailId] : data.emailIds;
     if (
       ids &&
-      (await db.email.count({ where: { id: { in: ids }, userId: user.id } })) !== new Set(ids).size
+      (await db.email.count({ where: { id: { in: ids }, userId: user.id, workspace } })) !==
+        new Set(ids).size
     )
       throw new ApiError(404, 'NOT_FOUND', 'Email not found.');
     await requestWork(user.id);
     const result = await withUserWorkLease(user.id, () =>
-      classifyEmails(user.id, { emailIds: ids, tagId: data.tagId, force: !!ids }),
+      classifyEmails(user.id, { emailIds: ids, tagId: data.tagId, force: !!ids, workspace }),
     );
     await notifyUser(user.id);
     return ok(result);
@@ -206,7 +221,7 @@ async function dispatch(request: Request) {
     const id = path.split('/')[1];
     if (method === 'GET') {
       const email = await db.email.findFirst({
-        where: { id, userId: user.id },
+        where: { id, userId: user.id, workspace },
         include: {
           classifications: {
             include: { tag: { select: { id: true, name: true, priority: true, version: true } } },
@@ -224,7 +239,7 @@ async function dispatch(request: Request) {
         .object({ handled: z.boolean() })
         .strict()
         .parse(await jsonBody(request));
-      const result = await db.email.updateMany({ where: { id, userId: user.id }, data });
+      const result = await db.email.updateMany({ where: { id, userId: user.id, workspace }, data });
       if (!result.count) throw new ApiError(404, 'NOT_FOUND', 'Email not found.');
       return ok({ updated: true });
     }

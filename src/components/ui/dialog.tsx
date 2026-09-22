@@ -1,7 +1,7 @@
 'use client';
 import { Dialog as Primitive } from 'radix-ui';
 import { X } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
 export function Dialog({
   open,
   onOpenChange,
@@ -17,11 +17,25 @@ export function Dialog({
   children: ReactNode;
   wide?: boolean;
 }) {
+  const returnFocus = useRef<HTMLElement | null>(null);
   return (
     <Primitive.Root open={open} onOpenChange={onOpenChange}>
       <Primitive.Portal>
         <Primitive.Overlay className="dialog-overlay" />
-        <Primitive.Content className={`dialog-content ${wide ? 'dialog-wide' : ''}`}>
+        <Primitive.Content
+          className={`dialog-content ${wide ? 'dialog-wide' : ''}`}
+          onOpenAutoFocus={() => {
+            returnFocus.current =
+              document.activeElement instanceof HTMLElement ? document.activeElement : null;
+          }}
+          onCloseAutoFocus={(event) => {
+            // These controlled dialogs open from lists and menus, without a Dialog.Trigger.
+            event.preventDefault();
+            const target = returnFocus.current;
+            if (target?.isConnected && target !== document.body) target.focus();
+            else document.getElementById('main-content')?.focus();
+          }}
+        >
           <div className="dialog-heading">
             <div>
               <Primitive.Title>{title}</Primitive.Title>

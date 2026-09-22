@@ -1,4 +1,5 @@
 'use client';
+import { useWorkspaceSelection } from './workspace-selection';
 import { usePriorityToasts } from '@/hooks/usePriorityToasts';
 import { Navigation } from './navigation';
 import { useDemo } from './providers';
@@ -10,6 +11,7 @@ import { usePathname } from 'next/navigation';
 import { ChevronRight, LockKeyhole } from 'lucide-react';
 export function WorkspaceShell({ children }: { children: ReactNode }) {
   usePriorityToasts();
+  const { workspace, name } = useWorkspaceSelection();
   const pathname = usePathname();
   const section = pathname.startsWith('/tags')
     ? 'Tags'
@@ -42,7 +44,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
       <div className="main-shell">
         <div className="topbar">
           <span className="workspace-crumb">
-            Personal <ChevronRight size={13} /> <strong>{section}</strong>
+            {name} <ChevronRight size={13} /> <strong>{section}</strong>
           </span>
           <span className="topbar-right">
             {demo ? (
@@ -58,7 +60,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
             )}
           </span>
         </div>
-        <main id="main-content" className="main-content" tabIndex={-1}>
+        <main key={workspace} id="main-content" className="main-content" tabIndex={-1}>
           {children}
         </main>
       </div>

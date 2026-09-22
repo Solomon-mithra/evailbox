@@ -45,6 +45,9 @@ beforeAll(async () => {
       'https://mail.google.com',
     ],
   );
+  await database.exec(
+    await readFile('prisma/migrations/20260922000000_workspaces/migration.sql', 'utf8'),
+  );
 }, 30000);
 afterAll(() => database.close());
 it('applies the complete migration with RLS on all application tables', async () => {
@@ -71,6 +74,42 @@ it('rejects cross-tenant foreign keys even on privileged writes', async () => {
     database.query(
       'INSERT INTO email_classifications(id,"userId","emailId","tagId","tagVersion",matched,confidence,decision,reasoning) VALUES ($1,$2,$3,$4,1,true,99,$5,$6)',
       ['bad', alice, 'email-a', 'b', 'match', 'trace'],
+    ),
+  ).rejects.toThrow(/foreign key/);
+});
+it('preserves existing mail in Personal and rejects cross-workspace classification', async () => {
+  expect(
+    (
+      await database.query<{ workspace: string }>('SELECT workspace FROM emails WHERE id=$1', [
+        'email-a',
+      ])
+    ).rows[0].workspace,
+  ).toBe('PERSONAL');
+  await database.query(
+    'INSERT INTO tags(id,"userId",workspace,name,"nameKey",prompt,priority,"updatedAt") VALUES ($1,$2,$3,$4,$4,$5,$6,now())',
+    ['work-tag', alice, 'WORK', 'private-a', 'Match work messages only', 'HIGH'],
+  );
+  await expect(
+    database.query(
+      'INSERT INTO email_classifications(id,"userId",workspace,"emailId","tagId","tagVersion",matched,confidence,decision,reasoning) VALUES ($1,$2,$3,$4,$5,1,true,99,$6,$7)',
+      ['cross-workspace', alice, 'PERSONAL', 'email-a', 'work-tag', 'match', 'trace'],
+    ),
+  ).rejects.toThrow(/foreign key/);
+  await expect(
+    database.query(
+      'INSERT INTO emails(id,"userId",workspace,"accountId","providerMessageId",subject,sender,"senderName",snippet,"receivedAt","webUrl") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,now(),$10)',
+      [
+        'cross-account',
+        alice,
+        'WORK',
+        'a',
+        'other',
+        'work',
+        'a@example.com',
+        'Alice',
+        'sample',
+        'https://mail.google.com',
+      ],
     ),
   ).rejects.toThrow(/foreign key/);
 });

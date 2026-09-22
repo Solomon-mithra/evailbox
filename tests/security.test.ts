@@ -45,3 +45,8 @@ describe('input validation', () => {
     expect(tagSchema.safeParse({ ...tag, name: 'a'.repeat(100) }).success).toBe(false);
   });
 });
+
+it('retains the originating workspace in authenticated OAuth state', () => {
+  const state = createOAuthState('user-1', 'GMAIL', 'verifier', Date.now(), 'WORK');
+  expect(verifyOAuthState(state, 'user-1', 'GMAIL').workspace).toBe('WORK');
+});

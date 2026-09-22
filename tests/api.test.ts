@@ -53,7 +53,9 @@ describe('API authorization and isolation', () => {
     mocks.tagFind.mockResolvedValue(null);
     const response = await DELETE(request('tags/other', 'DELETE'));
     expect(response.status).toBe(404);
-    expect(mocks.tagFind).toHaveBeenCalledWith({ where: { id: 'other', userId: 'tenant-a' } });
+    expect(mocks.tagFind).toHaveBeenCalledWith({
+      where: { id: 'other', userId: 'tenant-a', workspace: 'PERSONAL' },
+    });
     expect(mocks.tagDelete).not.toHaveBeenCalled();
   });
   it('projects account results without secrets', async () => {
@@ -69,7 +71,7 @@ describe('API authorization and isolation', () => {
     const response = await PATCH(request('emails/other', 'PATCH', { handled: true }));
     expect(response.status).toBe(404);
     expect(mocks.emailUpdate).toHaveBeenCalledWith({
-      where: { id: 'other', userId: 'tenant-a' },
+      where: { id: 'other', userId: 'tenant-a', workspace: 'PERSONAL' },
       data: { handled: true },
     });
   });
@@ -87,4 +89,27 @@ describe('API authorization and isolation', () => {
     const response = await PATCH(request('settings', 'PATCH', { minConfidence: 200 }));
     expect(response.status).toBe(400);
   });
+});
+
+it('scopes Work account lists and message mutations to Work', async () => {
+  mocks.accountList.mockResolvedValue([]);
+  expect((await GET(request('accounts?workspace=WORK', 'GET'))).status).toBe(200);
+  expect(mocks.accountList.mock.calls[0][0].where).toEqual({
+    userId: 'tenant-a',
+    workspace: 'WORK',
+  });
+  mocks.emailUpdate.mockResolvedValue({ count: 0 });
+  expect(
+    (await PATCH(request('emails/personal-email?workspace=WORK', 'PATCH', { handled: true })))
+      .status,
+  ).toBe(404);
+  expect(mocks.emailUpdate.mock.calls[0][0].where).toEqual({
+    id: 'personal-email',
+    userId: 'tenant-a',
+    workspace: 'WORK',
+  });
+});
+it('rejects unknown workspaces before accessing mailbox data', async () => {
+  expect((await GET(request('accounts?workspace=OTHER', 'GET'))).status).toBe(400);
+  expect(mocks.accountList).not.toHaveBeenCalled();
 });

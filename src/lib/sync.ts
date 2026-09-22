@@ -76,7 +76,13 @@ export async function syncUser(userId: string, accountId?: string, deadline = Da
                   providerMessageId: message.providerMessageId,
                 },
               },
-              create: { userId, accountId: account.id, ...message, lastSeenAt: observedAt },
+              create: {
+                userId,
+                workspace: account.workspace,
+                accountId: account.id,
+                ...message,
+                lastSeenAt: observedAt,
+              },
               update: { ...message, lastSeenAt: observedAt },
             });
           }

@@ -9,6 +9,7 @@ import { useWorkspace } from '@/hooks/useFetch';
 import { useDemo } from './providers';
 import { signOut } from '@/hooks/useAuth';
 import { toast } from 'sonner';
+import { WorkspaceSwitcher } from './workspace-switcher';
 
 const links = [
   { href: '/', label: 'Inbox', icon: Inbox },
@@ -39,6 +40,7 @@ function NavigationContent({ onNavigate }: { onNavigate?: () => void }) {
         </span>
         JevInbox
       </Link>
+      <WorkspaceSwitcher onSwitch={onNavigate} />
       <div className="sidebar-scroll">
         <nav aria-label="Main navigation">
           {links.map(({ href, label, icon: Icon }) => {

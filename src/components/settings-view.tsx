@@ -59,7 +59,7 @@ export function SettingsView() {
       <div className="page-heading">
         <div>
           <h1>Settings</h1>
-          <p>Notifications, preferences, and your account.</p>
+          <p>Notification preferences apply to both workspaces.</p>
         </div>
       </div>
       {query.isLoading ? (
@@ -193,7 +193,7 @@ export function SettingsView() {
                 <div className="setting-row">
                   <div>
                     <strong>Delete account</strong>
-                    <p>Remove your workspace, connections, and saved emails.</p>
+                    <p>Remove both workspaces, connections, and saved emails.</p>
                   </div>
                   <Button
                     variant="ghost"
@@ -213,10 +213,10 @@ export function SettingsView() {
       <ConfirmDialog
         open={deleting}
         onOpenChange={setDeleting}
-        title={demo ? 'Reset demo workspace?' : 'Permanently delete your account?'}
+        title={demo ? 'Reset demo data?' : 'Permanently delete your account?'}
         description={
           demo
-            ? 'This removes your local demo changes and restores the sample workspace.'
+            ? 'This resets both Personal and Work, removing your local demo changes and restoring the Personal sample data.'
             : 'Your JevInbox account and all stored data will be permanently removed. Your provider emails are unaffected.'
         }
         label={demo ? 'Reset demo' : 'Delete permanently'}

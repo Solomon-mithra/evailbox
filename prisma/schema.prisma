@@ -6,6 +6,10 @@ datasource db {
   url = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
+enum WorkspaceKind {
+  PERSONAL
+  WORK
+}
 enum Priority {
   HIGH
   MEDIUM
@@ -37,6 +41,7 @@ model User {
   @@map("users")
 }
 model Tag {
+  workspace WorkspaceKind @default(PERSONAL)
   id String @id @default(cuid())
   userId String @db.Uuid
   name String
@@ -51,11 +56,13 @@ model Tag {
   updatedAt DateTime @updatedAt
   user User @relation(fields:[userId],references:[id],onDelete:Cascade)
   classifications EmailClassification[]
-  @@unique([userId,nameKey])
+  @@unique([userId,workspace,nameKey])
   @@unique([id,userId])
+  @@unique([id,userId,workspace])
   @@map("tags")
 }
 model EmailAccount {
+  workspace WorkspaceKind @default(PERSONAL)
   id String @id @default(cuid())
   userId String @db.Uuid
   provider Provider
@@ -74,11 +81,13 @@ model EmailAccount {
   createdAt DateTime @default(now())
   user User @relation(fields:[userId],references:[id],onDelete:Cascade)
   emails Email[]
-  @@unique([userId,provider,email])
+  @@unique([userId,workspace,provider,email])
   @@unique([id,userId])
+  @@unique([id,userId,workspace])
   @@map("email_accounts")
 }
 model Email {
+  workspace WorkspaceKind @default(PERSONAL)
   id String @id @default(cuid())
   userId String @db.Uuid
   accountId String
@@ -95,14 +104,16 @@ model Email {
   webUrl String
   createdAt DateTime @default(now())
   user User @relation(fields:[userId],references:[id],onDelete:Cascade)
-  account EmailAccount @relation(fields:[accountId,userId],references:[id,userId],onDelete:Cascade)
+  account EmailAccount @relation(fields:[accountId,userId,workspace],references:[id,userId,workspace],onDelete:Cascade)
   classifications EmailClassification[]
   @@unique([accountId,providerMessageId])
   @@unique([id,userId])
+  @@unique([id,userId,workspace])
   @@index([userId,receivedAt])
   @@map("emails")
 }
 model EmailClassification {
+  workspace WorkspaceKind @default(PERSONAL)
   id String @id @default(cuid())
   userId String @db.Uuid
   emailId String
@@ -115,8 +126,8 @@ model EmailClassification {
   notifiedAt DateTime?
   createdAt DateTime @default(now())
   user User @relation(fields:[userId],references:[id],onDelete:Cascade)
-  email Email @relation(fields:[emailId,userId],references:[id,userId],onDelete:Cascade)
-  tag Tag @relation(fields:[tagId,userId],references:[id,userId],onDelete:Cascade)
+  email Email @relation(fields:[emailId,userId,workspace],references:[id,userId,workspace],onDelete:Cascade)
+  tag Tag @relation(fields:[tagId,userId,workspace],references:[id,userId,workspace],onDelete:Cascade)
   @@unique([emailId,tagId])
   @@index([userId,matched,confidence])
   @@map("email_classifications")

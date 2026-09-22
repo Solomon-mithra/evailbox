@@ -2,6 +2,7 @@ import 'server-only';
 import { Prisma, type DigestHistory, type NotificationPref, type User } from '@prisma/client';
 import { z } from 'zod';
 import { db } from './db';
+import { workspaceNames, type WorkspaceId } from './workspace-selection';
 import { digestWindow, escapeHtml } from './notification-utils';
 
 const payloadSchema = z.object({
@@ -28,7 +29,10 @@ async function buildPayload(
     orderBy: { windowEnd: 'desc' },
   });
   const lower = previous?.windowEnd ?? new Date(history.windowEnd.getTime() - 86400000);
-  const groups = new Map<string, { subject: string; sender: string; emailId: string }[]>();
+  const groups = new Map<
+    string,
+    { subject: string; sender: string; emailId: string; workspace: WorkspaceId }[]
+  >();
   let cursor: string | undefined;
   // Assemble the complete immutable time window. Never send a silently truncated page.
   for (;;) {
@@ -48,13 +52,16 @@ async function buildPayload(
     checkDeadline(deadline);
     for (const match of matches) {
       if (match.tagVersion !== match.tag.version) continue;
-      const group = groups.get(match.tag.name) ?? [];
+      const workspace = match.workspace ?? 'PERSONAL';
+      const groupName = workspaceNames[workspace] + ' · ' + match.tag.name;
+      const group = groups.get(groupName) ?? [];
       group.push({
         subject: match.email.subject,
         sender: match.email.senderName || match.email.sender,
         emailId: match.email.id,
+        workspace,
       });
-      groups.set(match.tag.name, group);
+      groups.set(groupName, group);
     }
     if (matches.length < 200) break;
     cursor = matches[matches.length - 1].id;
@@ -63,7 +70,7 @@ async function buildPayload(
   const unsubscribe = `${appUrl}/unsubscribe?token=${encodeURIComponent(pref.unsubscribeToken)}`;
   const summary =
     [...groups].map(([name, items]) => `${items.length} ${name}`).join(', ') || 'No new matches';
-  const html = `<html><body style="font-family:Arial,sans-serif;color:#171717;max-width:620px;margin:auto;padding:32px"><h1>Your JevInbox digest</h1><p>${escapeHtml(summary)}</p>${[...groups].map(([name, items]) => `<h2>${escapeHtml(name)}</h2><ul>${items.map((item) => `<li><a href="${escapeHtml(appUrl)}/?email=${encodeURIComponent(item.emailId)}">${escapeHtml(item.subject)}</a> — ${escapeHtml(item.sender)}</li>`).join('')}</ul>`).join('')}<p><a href="${escapeHtml(unsubscribe)}">Unsubscribe from daily digests</a></p></body></html>`;
+  const html = `<html><body style="font-family:Arial,sans-serif;color:#171717;max-width:620px;margin:auto;padding:32px"><h1>Your JevInbox digest</h1><p>${escapeHtml(summary)}</p>${[...groups].map(([name, items]) => `<h2>${escapeHtml(name)}</h2><ul>${items.map((item) => `<li><a href="${escapeHtml(appUrl)}/?workspace=${item.workspace}&amp;email=${encodeURIComponent(item.emailId)}">${escapeHtml(item.subject)}</a> — ${escapeHtml(item.sender)}</li>`).join('')}</ul>`).join('')}<p><a href="${escapeHtml(unsubscribe)}">Unsubscribe from daily digests</a></p></body></html>`;
   return {
     from: process.env.DIGEST_FROM!,
     to: [pref.user.email],

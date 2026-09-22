@@ -3,16 +3,21 @@ import { randomUUID } from 'node:crypto';
 import { db } from './db';
 import { syncUser } from './sync';
 import { ApiError } from './errors';
+import type { WorkspaceId } from './workspace-selection';
 
 /** Durable desired-work marker. A revision prevents a running worker from clearing newer requests. */
 export async function requestWork(
   userId: string,
-  options: { sync?: boolean; accountId?: string } = {},
+  options: { sync?: boolean; accountId?: string; workspace?: WorkspaceId } = {},
 ) {
   await db.$transaction(async (tx) => {
     if (options.sync)
       await tx.emailAccount.updateMany({
-        where: { userId, ...(options.accountId ? { id: options.accountId } : {}) },
+        where: {
+          userId,
+          ...(options.workspace ? { workspace: options.workspace } : {}),
+          ...(options.accountId ? { id: options.accountId } : {}),
+        },
         data: { syncRequested: true, syncRevision: { increment: 1 } },
       });
     await tx.user.update({

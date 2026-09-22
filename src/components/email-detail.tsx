@@ -9,6 +9,8 @@ import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
 import { useDemo } from './providers';
 import { api } from '@/lib/api';
+import { useWorkspaceSelection } from './workspace-selection';
+import { workspacePath } from '@/lib/workspace-selection';
 export function EmailDetail({
   email: selected,
   onClose,
@@ -16,11 +18,12 @@ export function EmailDetail({
   email: Email | null;
   onClose: () => void;
 }) {
+  const { workspace } = useWorkspaceSelection();
   const mutation = useAction(),
     demo = useDemo();
   const detail = useQuery({
-    queryKey: ['email', selected?.id],
-    queryFn: () => api.get<Email>(`/api/emails/${selected!.id}`),
+    queryKey: ['email', workspace, selected?.id],
+    queryFn: () => api.get<Email>(workspacePath(`/api/emails/${selected!.id}`, workspace)),
     enabled: !!selected && !demo,
   });
   const email = detail.data ?? selected;

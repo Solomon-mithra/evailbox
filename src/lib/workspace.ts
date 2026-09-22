@@ -2,6 +2,7 @@ import 'server-only';
 import { Prisma } from '@prisma/client';
 import { db } from './db';
 import { z } from 'zod';
+import { workspaceIds } from './workspace-selection';
 export const publicAccount = {
   id: true,
   email: true,
@@ -20,6 +21,7 @@ export const publicPrefs = {
 export async function getWorkspace(user: { id: string; email: string }, params: URLSearchParams) {
   const input = z
     .object({
+      workspace: z.enum(workspaceIds).default('PERSONAL'),
       search: z.string().max(200).default(''),
       tag: z.string().max(100).default(''),
       account: z.string().max(100).default(''),
@@ -29,6 +31,7 @@ export async function getWorkspace(user: { id: string; email: string }, params: 
     .parse(Object.fromEntries(params));
   const where: Prisma.EmailWhereInput = {
     userId: user.id,
+    workspace: input.workspace,
     ...(input.account ? { accountId: input.account } : {}),
     ...(input.tag ? { classifications: { some: { tagId: input.tag, matched: true } } } : {}),
     ...(input.range === 'all'
@@ -48,15 +51,19 @@ export async function getWorkspace(user: { id: string; email: string }, params: 
   };
   const needWhere: Prisma.EmailWhereInput = {
     userId: user.id,
+    workspace: input.workspace,
     handled: false,
     isRead: false,
     classifications: { some: { matched: true, tag: { priority: 'HIGH' } } },
   };
   const [tags, accounts, emails, preferences, total, needs, needsTotal, groups] = await Promise.all(
     [
-      db.tag.findMany({ where: { userId: user.id }, orderBy: { createdAt: 'asc' } }),
+      db.tag.findMany({
+        where: { userId: user.id, workspace: input.workspace },
+        orderBy: { createdAt: 'asc' },
+      }),
       db.emailAccount.findMany({
-        where: { userId: user.id },
+        where: { userId: user.id, workspace: input.workspace },
         select: publicAccount,
         orderBy: { createdAt: 'asc' },
       }),
@@ -81,6 +88,7 @@ export async function getWorkspace(user: { id: string; email: string }, params: 
       db.emailClassification.findMany({
         where: {
           userId: user.id,
+          workspace: input.workspace,
           matched: true,
           tag: { priority: 'HIGH' },
           email: { handled: false, isRead: false },
@@ -104,7 +112,7 @@ export async function getWorkspace(user: { id: string; email: string }, params: 
       db.email.count({ where: needWhere }),
       db.emailClassification.groupBy({
         by: ['tagId'],
-        where: { userId: user.id, matched: true },
+        where: { userId: user.id, workspace: input.workspace, matched: true },
         _count: { emailId: true },
       }),
     ],

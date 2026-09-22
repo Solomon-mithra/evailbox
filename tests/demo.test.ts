@@ -58,3 +58,33 @@ it('disconnecting one account removes only its cached mail', () => {
   expect(readDemo().accounts.map((a) => a.id)).toEqual(['outlook']);
   expect(readDemo().emails.every((e) => e.accountId === 'outlook')).toBe(true);
 });
+
+it('keeps existing Personal data and starts Work empty', () => {
+  const personal = readDemo('PERSONAL');
+  const work = readDemo('WORK');
+  expect(personal.emails).toHaveLength(9);
+  expect(work.accounts).toEqual([]);
+  expect(work.tags).toEqual([]);
+  expect(work.emails).toEqual([]);
+});
+it('persists tags independently in each workspace', () => {
+  mutateDemo(
+    '/api/tags',
+    'POST',
+    {
+      name: 'Clients',
+      description: '',
+      prompt: 'Messages from my clients',
+      priority: 'HIGH',
+      keywords: ['client'],
+      senders: [],
+    },
+    'WORK',
+  );
+  expect(readDemo('WORK').tags.map((t) => t.name)).toEqual(['Clients']);
+  expect(readDemo('PERSONAL').tags.some((t) => t.name === 'Clients')).toBe(false);
+});
+it('cannot alter Personal messages from Work', () => {
+  mutateDemo('/api/emails/demo-0', 'PATCH', { handled: true }, 'WORK');
+  expect(readDemo('PERSONAL').emails[0].handled).toBe(false);
+});

@@ -2,6 +2,7 @@
 import { createContext, useContext, useState, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
+import { WorkspaceSelection } from './workspace-selection';
 const ModeContext = createContext(false);
 export function useDemo() {
   return useContext(ModeContext);
@@ -16,7 +17,7 @@ export function Providers({ children, demo }: { children: ReactNode; demo: boole
   return (
     <ModeContext.Provider value={demo}>
       <QueryClientProvider client={queryClient}>
-        {children}
+        <WorkspaceSelection>{children}</WorkspaceSelection>
         <Toaster position="bottom-right" richColors closeButton />
       </QueryClientProvider>
     </ModeContext.Provider>
