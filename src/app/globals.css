@@ -358,9 +358,6 @@ h1 {
 .inbox-shell {
   background: #f8fafc;
 }
-.inbox-shell .page-heading {
-  background: #fff;
-}
 .button {
   display: inline-flex;
   align-items: center;
