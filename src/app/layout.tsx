@@ -1,7 +1,14 @@
 import type { Metadata } from 'next';
+import localFont from 'next/font/local';
 import { Providers } from '@/components/providers';
 import { Analytics } from '@vercel/analytics/next';
 import './globals.css';
+const inter = localFont({
+  src: './fonts/InterVariable.woff2',
+  variable: '--font-inter',
+  display: 'swap',
+  weight: '100 900',
+});
 export const metadata: Metadata = {
   title: 'JevInbox — Your inbox, in order',
   description: 'A focused workspace for Gmail and Outlook, organized by your rules with Jev.',
@@ -10,7 +17,7 @@ export const metadata: Metadata = {
 export const dynamic = 'force-dynamic';
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className={inter.variable}>
       <body>
         <a className="skip-link" href="#main-content">
           Skip to main content
