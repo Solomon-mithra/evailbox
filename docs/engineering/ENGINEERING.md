@@ -1,6 +1,19 @@
 # Engineering design
 
-Source of truth: `prisma/schema.prisma`, `prisma/migrations/20260921000000_init/migration.sql`, `src/app/api/[...path]/route.ts` and service modules. Reviewed 2026-09-21. A source implementation is not external validation; deployment, live OAuth, mailbox, model and delivery checks require separate evidence.
+Source of truth: `prisma/schema.prisma`, `prisma/migrations/` (initial schema and Personal/Work upgrade), `src/app/api/[...path]/route.ts` and service modules. Reviewed 2026-09-21. A source implementation is not external validation; deployment, live OAuth, mailbox, model and delivery checks require separate evidence.
+
+## Routes, identity and UI ownership
+
+| Surface               | Route / module                                                                 | Contract                                                                                                        |
+| --------------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| Public homepage       | `/`, `src/app/page.tsx`, `src/app/page.module.css`                             | Indexable evailbox introduction; **Open inbox** links to `/inbox`; no Supabase initialization for the root page |
+| Illustrative example  | `src/components/landing-example.tsx`                                           | Personal/Work rule-to-matches example with labeled synthetic results and keyboard-operable selectors            |
+| App                   | `/inbox`, `/tags`, `/tags/[id]`, `/accounts`, `/settings`                      | Session-gated in live mode; explicit demo bypass; application metadata is noindex                               |
+| Provider marks        | `src/components/provider-logo.tsx`, `/brands/gmail.svg`, `/brands/outlook.svg` | Shared local SVGs; exact asset routes remain public for signed-out visitors                                     |
+| Identity and theme    | `src/components/brand-mark.tsx`, `public/icon.svg`, `src/app/globals.css`      | evailbox mark; local Inter; cool off-white app canvas with retained box gradients; separate landing backdrop    |
+| Browser compatibility | `src/lib/browser-storage.ts`                                                   | Preserve old demo state and workspace selection while migrating to evailbox keys                                |
+
+Legacy root links containing `email` or `workspace` redirect to `/inbox` with query parameters preserved. Auth callbacks, app navigation, reset destinations, push and digest links use `/inbox`. Jev's model name, `JEV_*` settings and historical repository/deployment URLs retain their technical values. See [workspaces](WORKSPACES.md), [theme](THEME.md) and [provider sources](PROVIDER_LOGOS.md).
 
 ## Architecture
 
@@ -32,11 +45,11 @@ sequenceDiagram
   participant P as Google or Microsoft
   participant DB as Database
   UI->>API: GET accounts/provider/auth
-  API->>API: Generate verifier; encrypted user/provider/state; 10-minute cookie
+  API->>API: Generate verifier; encrypted user/provider/workspace/state; 10-minute cookie
   API-->>UI: Redirect with PKCE S256
   UI->>P: Consent to read-only mail
   P-->>API: Code + state callback
-  API->>API: Match cookie; validate state age, provider and user
+  API->>API: Match cookie; validate state age, provider and user; restore originating workspace
   API->>P: Exchange code + verifier
   API->>P: Get authorized mailbox identity
   API->>DB: Upsert account with AES-GCM encrypted tokens
@@ -84,7 +97,7 @@ All JSON success responses use `{ "data": ... }`; failures use `{ "error": { "co
 | `POST /api/auth/signout`             | User                      | Clears Supabase session.                                                                                                                                                                                             |
 | `GET /api/workspace`                 | User                      | Combined workspace and paged email query described below.                                                                                                                                                            |
 | `GET /api/tags`                      | User                      | Own tags ordered by creation.                                                                                                                                                                                        |
-| `POST /api/tags`                     | User                      | Full tag input; maximum 30 tags; returns 201.                                                                                                                                                                        |
+| `POST /api/tags`                     | User                      | Full tag input; maximum 30 tags per workspace; returns 201.                                                                                                                                                          |
 | `GET /api/tags/:id`                  | User                      | Own tag or 404.                                                                                                                                                                                                      |
 | `PATCH /api/tags/:id`                | User                      | Partial tag input; increments version, removes existing tag classifications transactionally.                                                                                                                         |
 | `DELETE /api/tags/:id`               | User                      | Deletes own tag; classification cascade.                                                                                                                                                                             |
@@ -111,13 +124,15 @@ All JSON success responses use `{ "data": ... }`; failures use `{ "error": { "co
 | `GET /api/cron/work`                 | Cron bearer secret        | Every-minute worker drains due durable requested work, oldest attempt first.                                                                                                                                         |
 | `GET /api/cron/digest`               | Cron bearer secret        | Sends due digests; demo returns skipped.                                                                                                                                                                             |
 
-Workspace query: `search` ≤200 characters; `tag` and `account` IDs ≤100; `range=week|month|all`; zero-based `page` 0–10000. Filters compose. Page size is 50; order is receivedAt descending then id descending. Search covers subject, sender and senderName. The response includes `user` (including workRequested), `tags`, safe `accounts`, `emails`, `preferences`, `total`, `page`, `pageSize`, `needsYou`, `needsTotal` and `tagCounts`. Workspace email bodies are returned as null; full detail is fetched separately. Stale classifications are filtered out of returned email details. UI-only grouping controls must not be mistaken for undocumented query parameters.
+Workspace-scoped account, tag, email, sync and classification APIs accept `workspace=PERSONAL|WORK`; omission defaults to `PERSONAL` and invalid values fail validation. OAuth persists the originating workspace in encrypted state. Preferences, subscriptions and user deletion remain account-wide. Background workers cover both spaces while pairing only same-workspace email and rules.
 
-Tag input: trimmed name 1–60, description ≤500, prompt 10–2000, priority HIGH/MEDIUM/LOW, ≤30 keywords of 1–80 chars, ≤30 valid email sender hints. Unknown fields rejected. Preferences: browserPush/dailyDigest booleans, digestTime `HH:mm`, valid IANA timezone, integer minConfidence 0–100, refreshMinutes 1–60. The notification minimum is separate from the classification decision threshold (default 80): lowering notification minimum does not turn a stored uncertain result into a match.
+Workspace query: `search` ≤200 characters; `tag` and `account` IDs ≤100; `range=week|month|all`; zero-based `page` 0–10000. Filters compose. Page size is 50; order is receivedAt descending then id descending. Search covers subject, sender and senderName. The response includes `user` (including workRequested), `tags`, safe `accounts`, `emails`, `preferences`, `total`, `page`, `pageSize`, `needsYou`, `needsTotal` and `tagCounts`. Workspace email bodies are returned as null; full detail is fetched separately. Stale classifications are filtered out of returned email details. `tagCounts` aggregates current matches across the selected workspace, rather than counting the loaded page. UI-only grouping controls must not be mistaken for undocumented query parameters.
+
+Tag input: trimmed name 1–60, description ≤500, prompt 10–2000, priority HIGH/MEDIUM/LOW, ≤30 keywords of 1–80 chars, ≤30 valid email sender hints. Unknown fields rejected. Tag names are case-insensitive unique per user/workspace, with a 30-tag limit in each space. Preferences: browserPush/dailyDigest booleans, digestTime `HH:mm`, valid IANA timezone, integer minConfidence 0–100, refreshMinutes 1–60. The notification minimum is separate from the classification decision threshold (default 80): lowering notification minimum does not turn a stored uncertain result into a match.
 
 ## Relational model and field dictionary
 
-`User.id` is the Supabase Auth UUID. Other model IDs are application-generated CUID strings. All application relations cascade on delete; the SQL migration also links users.id to auth.users.id with ON DELETE CASCADE. `Priority` values are HIGH/MEDIUM/LOW; `Provider` values are GMAIL/OUTLOOK. `?` means nullable, `[]` means a PostgreSQL array, and relation fields are Prisma navigation properties rather than extra SQL columns.
+`User.id` is the Supabase Auth UUID. Other model IDs are application-generated CUID strings. All application relations cascade on delete; the SQL migration also links users.id to auth.users.id with ON DELETE CASCADE. `Priority` values are HIGH/MEDIUM/LOW; `Provider` values are GMAIL/OUTLOOK. `WorkspaceKind` values are PERSONAL/WORK; existing rows default to PERSONAL. `?` means nullable, `[]` means a PostgreSQL array, and relation fields are Prisma navigation properties rather than extra SQL columns.
 
 ### User
 
@@ -147,8 +162,9 @@ Tag input: trimmed name 1–60, description ≤500, prompt 10–2000, priority H
 | ----------------- | ----------------------- | ------------------------------------------------------------------- |
 | `id`              | `String`                | Tag primary key                                                     |
 | `userId`          | `String`                | Owning user UUID                                                    |
+| `workspace`       | `WorkspaceKind`         | PERSONAL or WORK; defaults to PERSONAL                              |
 | `name`            | `String`                | Displayed tag name                                                  |
-| `nameKey`         | `String`                | Lowercase name used for per-user uniqueness                         |
+| `nameKey`         | `String`                | Lowercase name used for per-user/workspace uniqueness               |
 | `description`     | `String`                | Optional user-facing description; defaults empty                    |
 | `prompt`          | `String`                | User-defined semantic classification criteria                       |
 | `priority`        | `Priority`              | HIGH/MEDIUM/LOW; default MEDIUM                                     |
@@ -162,26 +178,27 @@ Tag input: trimmed name 1–60, description ≤500, prompt 10–2000, priority H
 
 ### EmailAccount
 
-| Field             | Type        | Meaning                                                                                                                                |
-| ----------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`              | `String`    | Mailbox primary key                                                                                                                    |
-| `userId`          | `String`    | Owning user UUID                                                                                                                       |
-| `provider`        | `Provider`  | GMAIL or OUTLOOK                                                                                                                       |
-| `email`           | `String`    | Provider-verified mailbox address                                                                                                      |
-| `accessToken`     | `String`    | Versioned AES-256-GCM ciphertext, never public API data                                                                                |
-| `refreshToken`    | `String?`   | Optional encrypted offline/rotated refresh token                                                                                       |
-| `expiresAt`       | `DateTime`  | Access-token expiry instant                                                                                                            |
-| `cursor`          | `String?`   | Opaque adapter-controlled JSON sync checkpoint                                                                                         |
-| `rescanStartedAt` | `DateTime?` | Persisted reconciliation start; unseen rows are removed only at terminal rescan completion                                             |
-| `syncRequested`   | `Boolean`   | Account has requested/unfinished provider synchronization; defaults true                                                               |
-| `syncRevision`    | `Int`       | Account request generation; increments on sync requests and guards terminal flag clearing against losing newer requests; defaults zero |
-| `lastSync`        | `DateTime?` | Last successfully persisted page time, not necessarily full round completion                                                           |
-| `syncError`       | `String?`   | Safe user-facing last failure summary                                                                                                  |
-| `syncLeaseUntil`  | `DateTime?` | Expiry of claimed sync lock                                                                                                            |
-| `syncLeaseId`     | `String?`   | Random current sync-owner identifier                                                                                                   |
-| `createdAt`       | `DateTime`  | Connection record creation time                                                                                                        |
-| `user`            | `User`      | Owning user relation                                                                                                                   |
-| `emails`          | `Email[]`   | Mailbox message cache                                                                                                                  |
+| Field             | Type            | Meaning                                                                                                                                |
+| ----------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`              | `String`        | Mailbox primary key                                                                                                                    |
+| `userId`          | `String`        | Owning user UUID                                                                                                                       |
+| `workspace`       | `WorkspaceKind` | PERSONAL or WORK; defaults to PERSONAL                                                                                                 |
+| `provider`        | `Provider`      | GMAIL or OUTLOOK                                                                                                                       |
+| `email`           | `String`        | Provider-verified mailbox address                                                                                                      |
+| `accessToken`     | `String`        | Versioned AES-256-GCM ciphertext, never public API data                                                                                |
+| `refreshToken`    | `String?`       | Optional encrypted offline/rotated refresh token                                                                                       |
+| `expiresAt`       | `DateTime`      | Access-token expiry instant                                                                                                            |
+| `cursor`          | `String?`       | Opaque adapter-controlled JSON sync checkpoint                                                                                         |
+| `rescanStartedAt` | `DateTime?`     | Persisted reconciliation start; unseen rows are removed only at terminal rescan completion                                             |
+| `syncRequested`   | `Boolean`       | Account has requested/unfinished provider synchronization; defaults true                                                               |
+| `syncRevision`    | `Int`           | Account request generation; increments on sync requests and guards terminal flag clearing against losing newer requests; defaults zero |
+| `lastSync`        | `DateTime?`     | Last successfully persisted page time, not necessarily full round completion                                                           |
+| `syncError`       | `String?`       | Safe user-facing last failure summary                                                                                                  |
+| `syncLeaseUntil`  | `DateTime?`     | Expiry of claimed sync lock                                                                                                            |
+| `syncLeaseId`     | `String?`       | Random current sync-owner identifier                                                                                                   |
+| `createdAt`       | `DateTime`      | Connection record creation time                                                                                                        |
+| `user`            | `User`          | Owning user relation                                                                                                                   |
+| `emails`          | `Email[]`       | Mailbox message cache                                                                                                                  |
 
 ### Email
 
@@ -189,7 +206,8 @@ Tag input: trimmed name 1–60, description ≤500, prompt 10–2000, priority H
 | ------------------- | ----------------------- | ------------------------------------------------------------------------------------- |
 | `id`                | `String`                | Local email primary key                                                               |
 | `userId`            | `String`                | Owning user UUID                                                                      |
-| `accountId`         | `String`                | Mailbox ID paired with userId in tenant-consistent foreign key                        |
+| `workspace`         | `WorkspaceKind`         | PERSONAL or WORK; defaults to PERSONAL                                                |
+| `accountId`         | `String`                | Mailbox ID paired with userId and workspace in the foreign key                        |
 | `providerMessageId` | `String`                | Remote message ID; unique within account                                              |
 | `lastSeenAt`        | `DateTime`              | Last provider-page observation, used for terminal rescan reconciliation; defaults now |
 | `subject`           | `String`                | Bounded plain-text subject                                                            |
@@ -208,22 +226,23 @@ Tag input: trimmed name 1–60, description ≤500, prompt 10–2000, priority H
 
 ### EmailClassification
 
-| Field        | Type        | Meaning                                                              |
-| ------------ | ----------- | -------------------------------------------------------------------- |
-| `id`         | `String`    | Evaluation record primary key                                        |
-| `userId`     | `String`    | Owning user UUID                                                     |
-| `emailId`    | `String`    | Local email ID with tenant-consistent relation                       |
-| `tagId`      | `String`    | Tag ID with tenant-consistent relation                               |
-| `tagVersion` | `Int`       | Tag version evaluated; stale versions hidden                         |
-| `matched`    | `Boolean`   | True only for policy-approved match                                  |
-| `confidence` | `Float`     | P(match) times 100; SQL range 0–100                                  |
-| `decision`   | `String`    | match, no_match or uncertain from application policy                 |
-| `reasoning`  | `String`    | Deterministic probability/threshold trace, not generated explanation |
-| `notifiedAt` | `DateTime?` | Push claim/delivery marker; null when eligible for retry             |
-| `createdAt`  | `DateTime`  | Initial evaluation record insertion time; used by digest window      |
-| `user`       | `User`      | Owning user relation                                                 |
-| `email`      | `Email`     | Evaluated email relation                                             |
-| `tag`        | `Tag`       | Evaluated tag relation                                               |
+| Field        | Type            | Meaning                                                              |
+| ------------ | --------------- | -------------------------------------------------------------------- |
+| `id`         | `String`        | Evaluation record primary key                                        |
+| `userId`     | `String`        | Owning user UUID                                                     |
+| `workspace`  | `WorkspaceKind` | PERSONAL or WORK; defaults to PERSONAL                               |
+| `emailId`    | `String`        | Local email ID with tenant/workspace-consistent relation             |
+| `tagId`      | `String`        | Tag ID with tenant/workspace-consistent relation                     |
+| `tagVersion` | `Int`           | Tag version evaluated; stale versions hidden                         |
+| `matched`    | `Boolean`       | True only for policy-approved match                                  |
+| `confidence` | `Float`         | P(match) times 100; SQL range 0–100                                  |
+| `decision`   | `String`        | match, no_match or uncertain from application policy                 |
+| `reasoning`  | `String`        | Deterministic probability/threshold trace, not generated explanation |
+| `notifiedAt` | `DateTime?`     | Push claim/delivery marker; null when eligible for retry             |
+| `createdAt`  | `DateTime`      | Initial evaluation record insertion time; used by digest window      |
+| `user`       | `User`          | Owning user relation                                                 |
+| `email`      | `Email`         | Evaluated email relation                                             |
+| `tag`        | `Tag`           | Evaluated tag relation                                               |
 
 ### NotificationPref
 
@@ -267,15 +286,15 @@ Tag input: trimmed name 1–60, description ≤500, prompt 10–2000, priority H
 | `payload`    | `Json?`     | Complete persisted Resend request body; null until assembled, reused unchanged for retries      |
 | `user`       | `User`      | Owning user relation                                                                            |
 
-Constraints: unique user email; `(userId,nameKey)` tag name; `(userId,provider,email)` mailbox identity; `(accountId,providerMessageId)` message identity; `(emailId,tagId)` classification identity; unique settings user/unsubscribe token; unique push endpoint; `(userId,localDate)` digest identity. Compound `(id,userId)` unique keys support tenant-consistent account/email/tag foreign keys. Indexes support user/date inbox reads, user/matched/confidence evaluation reads and user subscriptions. The SQL migration additionally enforces confidence and refresh ranges.
+Constraints: unique user email; `(userId,workspace,nameKey)` tag name; `(userId,workspace,provider,email)` mailbox identity; `(accountId,providerMessageId)` message identity; `(emailId,tagId)` classification identity; unique settings user/unsubscribe token; unique push endpoint; `(userId,localDate)` digest identity. Compound `(id,userId,workspace)` unique keys enforce tenant- and workspace-consistent account/email/tag foreign keys; `(id,userId)` keys also remain. Indexes support user/date inbox reads, user/matched/confidence evaluation reads and user subscriptions. The SQL migration additionally enforces confidence and refresh ranges.
 
 ## Security and consistency
 
-RLS is enabled on every application table. Authenticated direct clients have owner-only SELECT policies for users, tags, emails and classifications; writes are revoked. Direct anon/authenticated access to account credentials, preferences, subscriptions and delivery history is revoked. **Prisma uses a privileged connection, which can bypass RLS.** Every server read/write must scope by verified userId; composite foreign keys and RLS are defense layers, not substitutes. Test both direct database policies and all server endpoints with two independent users. [Supabase RLS documentation](https://supabase.com/docs/guides/database/postgres/row-level-security)
+RLS is enabled on every application table. Authenticated direct clients have owner-only SELECT policies for users, tags, emails and classifications; writes are revoked. Direct anon/authenticated access to account credentials, preferences, subscriptions and delivery history is revoked. **Prisma uses a privileged connection, which can bypass RLS.** Every server read/write must scope by verified userId and, for workspace-owned records, the selected workspace; composite foreign keys and RLS are defense layers, not substitutes. Test both direct database policies and all server endpoints with two independent users. [Supabase RLS documentation](https://supabase.com/docs/guides/database/postgres/row-level-security)
 
-Provider tokens and OAuth state use AES-256-GCM with random nonces and an authentication tag. Secrets are server-only. PKCE state is user/provider-bound, cookie-bound and expires after ten minutes. Mutations check same-origin; email content is treated as text; provider redirects are blocked; Graph cursor host/path validation prevents bearer-token leakage. Existing CSP permits inline scripts/styles and unsafe-eval for the current runtime configuration, so it is defense-in-depth rather than a strict nonce-based policy. Future hardening must remain compatible with Next assets.
+Provider tokens and OAuth state use AES-256-GCM with random nonces and an authentication tag. Secrets are server-only. PKCE state is user/provider/workspace-bound, cookie-bound and expires after ten minutes. Mutations check same-origin; email content is treated as text; provider redirects are blocked; Graph cursor host/path validation prevents bearer-token leakage. Existing CSP permits inline scripts/styles and unsafe-eval for the current runtime configuration, so it is defense-in-depth rather than a strict nonce-based policy. Future hardening must remain compatible with Next assets.
 
-Sync takes a two-minute account lease with an owner ID, processes up to four pages per account within an overall 45-second budget, and commits pages transactionally with cursor checkpoints. Provider requests inherit the shared sync deadline and stop new requests/retries when it expires; database work and final cleanup still need headroom within the deployment's function duration. Classification selects up to 100 candidate emails, collecting only missing pairs for each email. One native Jev call shares that email across up to 30 independent tag questions; all completed current-version decisions, including no-match and uncertain, are reused. Each result write locks/checks the tag version so edits cannot make an old in-flight decision current. User workRequested/revision fields, two-minute worker leases and workNotBefore/backoff persist continuation across invocations. The every-minute worker selects up to 100 due users by oldest/null lastBackgroundSyncAt; daily sync marks provider work rather than restarting imports. A crash after inference but before persistence may still cause another call. See [LARGE_INBOXES.md](LARGE_INBOXES.md) for queue fields, reconciliation, fairness, retention and exactly-once limits.
+Sync takes a two-minute account lease with an owner ID, processes up to four pages per account within an overall 45-second budget, and commits pages transactionally with cursor checkpoints. Provider requests inherit the shared sync deadline and stop new requests/retries when it expires; database work and final cleanup still need headroom within the deployment's function duration. Classification selects up to 100 candidate emails, collecting only missing pairs for each email. One native Jev call shares that email across up to 30 independent tag questions from its own workspace; all completed current-version decisions, including no-match and uncertain, are reused. Each result write locks/checks the tag version so edits cannot make an old in-flight decision current. User workRequested/revision fields, two-minute worker leases and workNotBefore/backoff persist continuation across invocations. The every-minute worker selects up to 100 due users by oldest/null lastBackgroundSyncAt; daily sync marks provider work rather than restarting imports. A crash after inference but before persistence may still cause another call. See [LARGE_INBOXES.md](LARGE_INBOXES.md) for queue fields, reconciliation, fairness, retention and exactly-once limits.
 
 ## Notifications and reliability boundaries
 
@@ -285,4 +304,4 @@ Digest queues due opted-in users in their IANA timezone and retries previously q
 
 ## Verification policy
 
-Fixture tests cover crypto/state boundaries, validation, provider normalization/pagination/security, native Jev wire format and digest date logic. They do not establish consent approval, token refresh behavior on real accounts, semantic accuracy, provider delivery or deployed cron operation. CI runs in explicit demo mode. The connected Vercel Hobby account rejected the configured live minute/15-minute schedules; the explicit demo deployment route uses vercel.demo.json with no crons and does not enable scheduled live processing. Local PGlite tests execute the migration/RLS with a Supabase auth scaffold; this does not prove hosted Supabase configuration. Browser QA was interrupted by user control, and unexecuted checks remain pending. Live configuration has not yet been supplied. Record local checks and externally observed checks separately; never mark unrun checks passing.
+Fixture tests cover crypto/state boundaries, validation, provider normalization/pagination/security, native Jev wire format and digest date logic. They do not establish consent approval, token refresh behavior on real accounts, semantic accuracy, provider delivery or deployed cron operation. CI runs in explicit demo mode. The connected Vercel Hobby account rejected the configured live minute/15-minute schedules; the explicit demo deployment route uses vercel.demo.json with no crons and does not enable scheduled live processing. Local PGlite tests execute the migration/RLS with a Supabase auth scaffold; this does not prove hosted Supabase configuration. Scoped demo browser checks for theme, tag cards and the landing page are recorded in [THEME.md](THEME.md). Final appearance changes, manual screen-reader review and unexecuted end-to-end checks remain pending; [STATUS.md](../phases/STATUS.md) is the current evidence summary. Live configuration has not yet been supplied. Record local checks and externally observed checks separately; never mark unrun checks passing.

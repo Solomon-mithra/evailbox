@@ -1,6 +1,6 @@
 # evailbox
 
-A focused inbox for Gmail and Outlook. Define custom tags, let AI evaluate each email against your criteria, and review important messages with explicit match probabilities.
+A focused inbox for busy personal and work email across Gmail and Outlook. Define custom tags, let AI evaluate each email against your criteria, and review important messages with explicit match probabilities.
 
 Built with Next.js 16.3.5, React 19, strict TypeScript, Tailwind CSS 4, shadcn-style Radix components, Supabase Auth/PostgreSQL, Prisma, and Vercel AI Gateway.
 
@@ -19,10 +19,13 @@ Open http://localhost:3000 for the homepage, or http://localhost:3000/inbox for 
 
 ## What is implemented
 
+- Public evailbox homepage at `/` with an illustrative rule-to-matches example; **Open inbox** leads to the application at `/inbox`.
+- Independent Personal and Work spaces for accounts, email, tags and matching; existing data remains Personal.
+- Forest/lime design with local Inter typography, cool off-white app backgrounds, retained page-heading gradients and shared official provider SVGs.
 - Server-owned Supabase Google sign-in, httpOnly session cookies, protected pages, and origin-checked mutations.
 - Independent Gmail and Outlook OAuth connections with PKCE/state checks and AES-256-GCM token encryption.
 - Incremental, paginated sync with durable provider cursors, account leases, deduplication, and recovery scans that preserve existing triage.
-- Tag creation, editing and deletion; typed Jev decisions; persisted email–tag/version results, including negative and uncertain decisions.
+- Rule-focused tag cards with workspace-wide counts, visible editing and confirmed deletion; typed Jev decisions and persisted email–tag/version results, including negative and uncertain decisions.
 - A durable backlog worker with leases, revision checks, backoff, and one native Jev evaluation per email for its unfinished tags. Completed pairs are not automatically re-evaluated.
 - Responsive inbox, priority section, expandable tag groups, search/compound filters, detail dialogs, handled state, account controls and settings.
 - Web Push delivery and timezone-aware digests with immutable retry payloads, unsubscribe and delivery history.
@@ -42,7 +45,7 @@ npm run typecheck
 npm run build
 ```
 
-The migration targets Supabase: it references `auth.users`, `auth.uid()`, `anon`, and `authenticated`. Do not apply it to an unrelated production database. Tests execute this migration in isolated PGlite PostgreSQL with Supabase-style auth fixtures; they do not provision or verify a live Supabase project.
+The migrations target Supabase and reference `auth.users`, `auth.uid()`, `anon`, and `authenticated`. Do not apply them to an unrelated production database. Tests execute both migrations, including the Personal/Work upgrade, in isolated PGlite PostgreSQL with Supabase-style auth fixtures; they do not provision or verify a live Supabase project.
 
 Vercel cron configuration requires a plan supporting every-minute workers. Daily sync schedules at 03:00 UTC, the worker resumes pending work every minute, and digest scheduling checks every 15 minutes. The UI’s refresh setting controls query polling, not provider polling.
 
@@ -57,11 +60,14 @@ See [current validation status](docs/phases/STATUS.md). Real OAuth consent, prod
 - [Tech stack](docs/engineering/TECH_STACK.md)
 - [Provider contracts](docs/engineering/PROVIDERS.md)
 - [Large inboxes and checkpoints](docs/engineering/LARGE_INBOXES.md)
+- [Personal/Work spaces and browser-storage migration](docs/engineering/WORKSPACES.md)
+- [Theme, landing page and browser review](docs/engineering/THEME.md)
+- [Provider SVG sources and usage](docs/engineering/PROVIDER_LOGOS.md)
 - [Deployment, troubleshooting and rollback](docs/engineering/RUNBOOK.md)
 - [Implementation plan](docs/phases/IMPLEMENTATION_PLAN.md)
 - [Phase 0](docs/phases/PHASE_0.md), [Phase 1](docs/phases/PHASE_1.md), [Phase 2](docs/phases/PHASE_2.md), [Phase 3](docs/phases/PHASE_3.md), [Phase 4](docs/phases/PHASE_4.md), [Phase 5](docs/phases/PHASE_5.md), [Phase 6](docs/phases/PHASE_6.md)
 
-All 38 original task IDs include step-by-step instructions and acceptance criteria. No work beyond Phase 6 is authorized.
+All 38 original task IDs retain step-by-step instructions and acceptance criteria. The user-requested branding, landing page, workspace and UI refinements are tracked within Phases 0–6; implementation and external acceptance are recorded separately.
 
 ## Deployment configurations
 

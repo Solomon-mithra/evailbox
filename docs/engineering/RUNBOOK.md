@@ -7,15 +7,23 @@ This is an executable operator guide, not a record of actions already performed.
 1. Install Node.js 22 and clone the private repository; enter `jevinbox`.
 2. Run `npm ci`, then copy `.env.example` to `.env.local`. Keep `APP_MODE=demo` and `NEXT_PUBLIC_APP_URL=http://localhost:3000`.
 3. Run `npm run db:generate`, then `npm run dev`.
-4. Open localhost and confirm the explicit demo indicator. Exercise tags, combined filters, email details, handled state, account/settings screens and narrow viewport navigation. Demo actions use local fictional data, not provider credentials.
+4. Open `http://localhost:3000/` and confirm the public evailbox landing page. Choose **Open inbox** to reach `/inbox` and confirm the explicit demo indicator. Switch Personal/Work and verify independent state. Exercise tags, combined filters, email details, handled state, account/settings screens and narrow viewport navigation. Demo actions use local fictional data, not provider credentials.
 5. Run `npm test`, `npm run lint`, `npm run typecheck`, `npm run build`. Record failures rather than editing evidence to appear green.
+
+## UI release smoke checks
+
+- Check `/` as a signed-out visitor: evailbox name, **Open inbox** action, Personal/Work illustration and both provider SVGs. In live mode, `/inbox` still requires sign-in.
+- Verify root email/workspace links redirect to `/inbox` with query parameters intact; check notification/digest links open the intended workspace and message.
+- Check cool off-white backgrounds across app pages, retained heading-box gradients and the separately styled landing page. Review tag-card navigation, **Edit rule**, deletion cancellation/focus and zero/unknown counts at desktop and mobile widths.
+- Verify legacy demo keys migrate without losing custom rules. Use the application's demo reset when a fresh fictional state is intended; [WORKSPACES.md](WORKSPACES.md) documents both generations of keys.
+- Record the revision, browser, viewport, mode and actual results. [STATUS.md](../phases/STATUS.md) distinguishes completed local checks from final visual and external acceptance still required.
 
 ## Live environment and database
 
 1. Create a dedicated Supabase project for the intended environment. Keep staging and production credentials separate.
 2. Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` from project settings. Store `SUPABASE_SERVICE_ROLE_KEY` only in server environment secrets.
 3. Set `DATABASE_URL` to the appropriate Prisma runtime connection and `DIRECT_URL` to the direct/migration connection from Supabase. Percent-encode password special characters. Never expose either as public variables.
-4. Back up existing data and review `prisma/migrations/20260921000000_init/migration.sql`. On a fresh authorized project run `npm run db:migrate` with environment variables loaded, then `npm run db:generate`. The migration expects Supabase roles and `auth.uid()`; plain PostgreSQL needs equivalent auth scaffolding for integration testing.
+4. Back up existing data and review both committed migrations: `20260921000000_init` and `20260922000000_workspaces`. Run `npm run db:migrate` with the intended environment loaded, then `npm run db:generate`. The workspace upgrade preserves existing rows as Personal and changes mailbox/name uniqueness and composite foreign keys; coordinate it with application rollout. Neither migration has been validated on a live project. Supabase roles and `auth.uid()` are required; plain PostgreSQL needs equivalent auth scaffolding for integration testing. See [workspace rollout](WORKSPACES.md).
 5. Verify every application table has RLS enabled. Test authenticated user A cannot select user B's allowed rows and cannot directly read credential/preference/subscription/digest tables. Test server APIs independently: Prisma's privileged role can bypass RLS, so RLS alone does not prove tenant isolation. [Supabase RLS roles](https://supabase.com/docs/guides/database/postgres/row-level-security)
 6. Generate a 32-byte key with `openssl rand -hex 32` into a secure secret store; set `ENCRYPTION_SECRET_KEY`. Generate an independent long random `CRON_SECRET` (at least 32 characters). Preserve encryption-key backups securely.
 7. Configure every live variable in `.env.example`, set the exact HTTPS `NEXT_PUBLIC_APP_URL`, and set `APP_MODE=live`. Startup validation rejects missing placeholders; do not suppress validation to deploy a partially configured live service.
@@ -98,7 +106,7 @@ Disconnecting a mailbox removes local records, not provider-side consent. For re
 
 ## Current validation boundary
 
-The local PGlite suite exercises the committed migration, RLS policies, credential-table denial and tenant foreign keys using a Supabase auth scaffold. The thousand-message classification fixture drains ten batches of 100 emails with two tags each: 2,000 pair results, 1,000 mocked batched Jev invocations, and no further calls on a subsequent completed pass. This is correctness evidence, not live latency/throughput or cost measurement. Queue/rescan regression tests cover durable continuation and reconciliation separately. Browser QA was interrupted by user control; unexecuted browser checks remain pending. No live configuration has yet been supplied, so hosted Supabase, real OAuth/inbox/JeV, deployed cron and real notification delivery cannot be marked passed.
+The local PGlite suite exercises the committed migration, RLS policies, credential-table denial and tenant foreign keys using a Supabase auth scaffold. The thousand-message classification fixture drains ten batches of 100 emails with two tags each: 2,000 pair results, 1,000 mocked batched Jev invocations, and no further calls on a subsequent completed pass. This is correctness evidence, not live latency/throughput or cost measurement. Queue/rescan regression tests cover durable continuation and reconciliation separately. Recorded demo browser passes cover theme, tags, landing examples, responsive layout and selected keyboard/accessibility flows. Final appearance review after the latest copy/background/logo changes, manual screen-reader testing and full live journeys remain pending; see [current evidence](../phases/STATUS.md). No live configuration has yet been supplied, so hosted Supabase, real OAuth/inbox/Jev, deployed cron and real notification delivery cannot be marked passed.
 
 ### Confirmed Hobby deployment configuration
 

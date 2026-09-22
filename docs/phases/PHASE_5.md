@@ -2,11 +2,13 @@
 
 Prerequisite: workspace API, account data and versioned classifications. Perform the browser checks with both explicit demo data and, when authorized, live test data. No browser or live-data acceptance is implied by this document.
 
+Personal/Work boundaries, rollout and evailbox browser-key compatibility are documented in [WORKSPACES.md](../engineering/WORKSPACES.md). See [STATUS.md](STATUS.md) for completed local checks and remaining acceptance.
+
 ## 5.1 Inbox — Needs You, By Tag, This Week
 
 Steps:
 
-1. Implement the main Inbox views with meaningful tabs/grouping and consistent message rows.
+1. Implement `/inbox` in the selected Personal/Work workspace with meaningful Inbox tabs/grouping and consistent message rows.
 2. Display sender, subject, snippet, date, provider/account, current tags, priority and available decision/probability.
 3. Define Needs You eligibility from unhandled matched mail and ensure This Week uses the intended seven-day boundary.
 4. Add empty, loading and failed-query states plus pagination for the 50-row workspace contract.
@@ -23,7 +25,7 @@ Acceptance criteria:
 
 Steps:
 
-1. Open the selected message using its local ID; load/check tenant-owned detail.
+1. Open the selected message using its local ID; load/check detail owned by the user and selected workspace. Delivery links include `workspace`; legacy email links without it target Personal.
 2. Display sender/address, received time, subject, plain-text body or snippet fallback and current classifications.
 3. Label classification trace as probability/threshold policy, not generated semantic explanation.
 4. Add local handled toggle and safe provider link; maintain focus behavior on open/close.
@@ -52,14 +54,15 @@ Acceptance criteria:
 - Result count and pagination correspond to the current filter set.
 - Input is bounded and query errors are recoverable; no raw SQL or unsafe HTML is constructed.
 
-## 5.4 Tag Detail
+## 5.4 Tag Cards and Detail
 
 Steps:
 
 1. Provide a dedicated selected-tag view with name, description, prompt/priority context and matching mail.
 2. Bind the tag ID to the workspace filter and paginate matching messages.
-3. Offer edit/delete/reclassification actions where appropriate, invalidating query state after changes.
-4. Review empty matches, stale results during re-evaluation, deleted tag and wrong-owner IDs.
+3. Use workspace-wide aggregate counts on cards, full-card navigation and a separate **Edit rule** action. Keep deletion in a secondary menu with confirmation and focus restoration.
+4. Label manual evaluation **Check for matches**, invalidate queries after edits and distinguish zero matches from unavailable counts.
+5. Review empty matches, stale results during re-evaluation, deleted tag, wrong-owner/workspace IDs and long rules.
 
 Acceptance criteria:
 
@@ -79,10 +82,10 @@ Steps:
 
 Acceptance criteria:
 
-- Preference values persist in live mode and demo changes remain local/fictional.
+- Preferences remain account-wide across Personal/Work; values persist in live mode and demo changes remain local/fictional.
 - The notification confidence floor is not represented as changing the Jev classification threshold.
 - Refresh setting explains cached query refresh versus actual provider synchronization.
-- Destructive deletion requires explicit confirmation and cannot affect another tenant.
+- Destructive user deletion requires explicit confirmation, covers both workspaces and cannot affect another tenant.
 
 ## 5.6 Real Time — Five-Minute Query Refresh
 

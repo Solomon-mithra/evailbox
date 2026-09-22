@@ -1,42 +1,60 @@
 # Validation and deployment status
 
-Updated: 2026-09-21. This is a delivered implementation with an isolated demo. Live beta acceptance is **not yet complete**.
+Updated: 2026-09-21. Product: **evailbox**. This is a delivered implementation with an isolated demo. Live beta acceptance is **not yet complete**. This document is the current evidence summary; earlier counts and screenshots in the theme notes describe their individual review milestones.
+
+## Delivered product refinements
+
+- Public, indexable homepage at `/` for people managing busy personal and work inboxes; the application lives at `/inbox`. The primary action is **Open inbox**. An explicitly illustrative Personal/Work example explains how rules find relevant email.
+- Consistent evailbox name and envelope mark across UI, metadata, icons, notifications and digests. Auth returns, navigation and delivery links use `/inbox`; legacy root email/workspace links preserve their parameters when redirected.
+- Independent Personal and Work accounts, mail, tags, counts and classification; existing records remain Personal. Browser storage migrates to evailbox keys while preserving custom rules. See [workspaces and migration](../engineering/WORKSPACES.md).
+- Local Inter typography, forest navigation, lime selection, accessible semantic states and cool off-white app backgrounds. Page-heading box gradients remain; the landing page retains its own green hero treatment. See [theme and scoped browser evidence](../engineering/THEME.md).
+- Tag cards prioritize the rule and workspace-wide match count, with full-card email navigation, a separate **Edit rule** action, confirmed deletion and clearer empty states.
+- Shared, locally served Gmail and Outlook SVG logos on the landing page, Accounts and embedded account controls in Settings. See [asset sources and usage](../engineering/PROVIDER_LOGOS.md).
+
+These are user-requested refinements within Phases 2, 4, 5 and 6, not a new phase.
 
 ## Verified locally
 
-- Strict TypeScript: `npm run typecheck` passes.
-- ESLint: `npm run lint` passes without warnings.
-- Tests: `npm test` passes 74 tests across 12 files.
-- Dependency audit after the pinned deepmerge-ts security override: no reported vulnerabilities at installation.
-- The complete migration executes in isolated PGlite PostgreSQL. Tests verify RLS on all eight public tables, authenticated tenant isolation, blocked credential reads, tenant-consistent classification foreign keys, and account deletion cascades.
-- Provider fixtures cover OAuth, token refresh, Gmail/Graph pagination and errors, cursor validation, MIME decoding, and native Jev Gateway wire format.
-- A 1,000-email fixture with two tags drains across ten batches; 2,000 decisions persist, only 1,000 batched evaluations occur, and a subsequent pass makes no further calls. This is mocked correctness coverage, not a live load or cost benchmark.
-- Queue tests cover user leases, saved work revisions, retry scheduling and lease release. Rescan tests cover preserving existing triage and revision-aware account completion.
-- Digest tests cover immutable retries, pagination beyond 200 matches, cutoff boundaries, timezone/midnight scheduling, HTML escaping and deadlines.
-- Browser visual checks completed for desktop inbox and email details. Browser automation then stopped on an explicit user-control signal. Remaining interaction, keyboard, screen-reader and mobile checks are pending. See [desktop capture](../engineering/desktop.png).
+Fresh source baseline: `5350ce0` on 2026-09-21, before this documentation-only update.
 
-GitHub CI and the deployed health-monitor workflow passed for commit `b67fac1`. The first 24 hours of monitoring have not yet elapsed.
+- `npm test`: **102 tests across 13 files pass**.
+- `npm run lint`: passes without warnings.
+- `APP_MODE=demo npm run build`: passes, including Prisma generation, service-worker bundling and Next.js compilation/TypeScript checks.
+- PGlite tests execute both migrations, including legacy-data preservation, RLS on all eight public tables, tenant isolation, blocked credential reads, workspace-consistent foreign keys and deletion cascades.
+- Provider fixtures cover OAuth, workspace-bound state, token refresh, Gmail/Graph pagination and errors, cursor validation, MIME decoding and native Jev Gateway wire format.
+- A 1,000-email fixture with two tags drains ten batches: 2,000 decisions, 1,000 mocked batched evaluations, and no further calls on a completed pass. This is correctness coverage, not a live load or cost benchmark.
+- Queue, rescan and digest tests cover leases, revisions, retries, preserved triage, immutable payloads, pagination, cutoff boundaries, local scheduling, escaping and deadlines.
+- Routing and storage regressions cover public homepage/provider assets, private app routes, refreshed auth cookies, legacy redirects, workspace isolation, legacy-key migration, blocked storage writes and preservation of user-written rules.
+
+## Browser evidence and remaining review
+
+Recorded demo browser checks cover inbox/detail, tags and forms, accounts/settings/sign-in, workspace switching, search, keyboard tabs, dialog Escape/focus restoration and mobile navigation. Theme, tag-card and landing layouts were checked at 320, 390, 768, 1024 and 1440 CSS pixels, with 200% text sizing and text-spacing overrides. The landing Personal/Work example was exercised by pointer and keyboard. Scoped axe checks reported no A/AA violations in the tested states; gradients were measured separately. See [theme notes](../engineering/THEME.md) for the boundaries of each pass.
+
+Browser control returned to the user before the final landing-copy, background and provider-logo refinements. Those later changes received source, automated and HTTP checks as applicable, but **a final browser pass on the latest appearance is pending**. Manual screen-reader review, complete end-to-end acceptance and all live integration checks also remain pending. Historical screenshots are not current release screenshots.
 
 ## Phase acceptance
 
-| Phase | Implementation                                                                          | External acceptance                                                         |
-| ----- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| 0     | Repository, PRD, architecture, stack and task instructions exist                        | No external gate                                                            |
-| 1     | Auth, schema, RLS, configuration and project scaffold implemented                       | Supabase project, production migration, real Google sign-in pending         |
-| 2     | Dashboard, navigation, auth UI, client utilities and session gates implemented          | Remaining browser/accessibility checks pending                              |
-| 3     | OAuth connectors, encrypted storage and incremental sync implemented and fixture-tested | Gmail/Outlook consent and real mailbox sync pending                         |
-| 4     | Tag CRUD and typed Jev classification implemented and tested                            | Real Gateway key and live result evaluation pending                         |
-| 5     | Inbox, details, filtering, tag views, settings and query polling implemented            | Full live-data and mobile acceptance pending                                |
-| 6     | Push, digest, cron worker, CI and runbook implemented                                   | Live delivery, real cron workload and 24-hour monitoring completion pending |
+| Phase | Implemented                                                                    | Remaining acceptance                                         |
+| ----- | ------------------------------------------------------------------------------ | ------------------------------------------------------------ |
+| 0     | Repository, PRD, architecture, stack and task instructions                     | No external gate                                             |
+| 1     | Auth, schema, RLS, configuration and workspace migration                       | Hosted Supabase migrations/RLS and real Google sign-in       |
+| 2     | Theme, public landing, `/inbox`, navigation, auth UI and route gates           | Final appearance review, screen reader and live sessions     |
+| 3     | OAuth connectors, encrypted storage and incremental sync                       | Real Gmail/Outlook consent, refresh and mailbox sync         |
+| 4     | Workspace-scoped tag CRUD, improved cards and typed Jev classification         | Live persistence and authorized Gateway evaluation           |
+| 5     | Separate workspaces, inbox/detail/filter views, accounts, settings and polling | Complete live-data journeys and observed refresh timing      |
+| 6     | Branded push/digest links, cron worker, polish, CI and runbook                 | Live delivery, deployed cron and recorded 24-hour monitoring |
 
 ## Deployment boundary
 
-Private repository: https://github.com/Solomon-mithra/jevinbox
+Existing private repository: [Solomon-mithra/jevinbox](https://github.com/Solomon-mithra/jevinbox). The historical repository name, Vercel project `jevinbox` in `fnu-solomon-mithras-projects`, and [demo URL](https://jevinbox.vercel.app) have not been renamed. The product rename does not change Jev's model ID or `JEV_*` environment variables.
 
-The account is on Vercel Hobby, which rejected sub-daily cron schedules. The default `vercel.json` now disables scheduled jobs for the demo; `vercel.live.json` preserves the full live configuration. No plan was upgraded.
+The following are the last recorded deployment observations, not a new deployment verification:
 
-The Vercel project is `jevinbox` in `fnu-solomon-mithras-projects`. It is configured for **demo mode**. Demo URL: https://jevinbox.vercel.app. The Vercel build completed successfully and the deployment is ready. HTTP checks verify the public pages and health endpoint; live APIs deliberately return `503 DEMO_MODE`, and unauthenticated cron requests return `401`. Authenticated demo cron requests return a skipped result. The repository is pushed to `main`. Vercel Git integration could not be linked: the account requires a GitHub Login Connection. The initial CLI demo deployment succeeded before the repository commits. The latest committed release was blocked by Vercel: “The deployment was blocked because the commit author doesn’t have permission to create deployments for this project.” The existing demo remains available, but it does not include the latest committed UI and monitoring changes. An authorized operator must resolve the GitHub identity/project deployment permission before redeploying; automatic deployment from Git also remains pending the Login Connection.
+- The initial CLI deployment completed in **demo mode**. Health/public-page HTTP checks passed; live APIs returned `503 DEMO_MODE`, unauthenticated cron returned `401`, and authenticated demo cron skipped work.
+- GitHub CI and deployed health monitoring passed for `b67fac1`. A completed 24-hour monitoring acceptance record is still absent; CI for the latest local refinements has not been verified.
+- The connected Vercel Hobby account rejected sub-daily cron. The root `vercel.json` disables demo jobs; `vercel.live.json` preserves live schedules. No plan was upgraded.
+- Vercel Git linking required a GitHub Login Connection. A subsequent deployment was blocked because the commit author lacked project deployment permission. An authorized operator must resolve those identity/project permissions; automatic Git deployment remains unverified.
 
-No real email has been read, sent, modified or deleted as part of implementation. No live Jev request has been made. Service credentials were requested during deployment; they have not yet been supplied. Locally generated encryption, cron and VAPID secrets are in ignored environment files and must not be committed.
+The recent UI refinements are committed locally and have not been pushed or deployed in this update. Do not assume the existing hosted demo contains them. Neither migration has been applied to a live Supabase project as part of this work.
 
-The live launch remains gated on the runbook’s configuration and acceptance checks. Work stops at Phase 6.
+No real email has been read, sent, modified or deleted during implementation, and no live Jev request has been made. Required live service credentials have not been supplied. Locally generated secrets remain in ignored environment files. Live launch depends on the [runbook](../engineering/RUNBOOK.md) and [Phase 6 acceptance matrix](PHASE_6.md); implementation scope remains Phases 0–6.

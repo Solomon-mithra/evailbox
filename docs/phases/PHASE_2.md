@@ -2,11 +2,13 @@
 
 Prerequisite: framework and session foundation. UI acceptance requires actual browser review; this document is not that evidence. Complete functional screens supersede the original temporary dashboard placeholders.
 
+Implemented refinements and evidence: [theme and landing page](../engineering/THEME.md), [provider logos](../engineering/PROVIDER_LOGOS.md), [workspaces](../engineering/WORKSPACES.md) and [current status](STATUS.md).
+
 ## 2.1 shadcn Theme
 
 Steps:
 
-1. Establish shared monochrome color, typography, spacing, border, radius and focus tokens in the application styles.
+1. Establish forest/lime semantic colors, local Inter typography, spacing, border, radius and focus tokens. Use a cool off-white app canvas, retain page-heading box gradients and keep the landing background separately scoped.
 2. Build shadcn-style composable controls from Radix primitives and Tailwind: button, input, card, badge, dialog, dropdown, tabs and loading feedback.
 3. Apply semantic priority accents and consistent disabled/error/focus behavior.
 4. Review controls in keyboard navigation and narrow/high-zoom layouts; verify labels and contrast.
@@ -25,7 +27,7 @@ Steps:
 1. Implement sign-in, callback/error feedback and sign-out transitions using the session API.
 2. Show clear provider failure/loading states and prevent repeated submissions while a transition is pending.
 3. Make demo access and live authentication visibly distinct; never fabricate an authenticated user in live mode.
-4. Test public sign-in, redirected private route, callback failure and successful return to the workspace.
+4. Test public sign-in, redirected private route, callback failure and successful return to `/inbox`.
 
 Acceptance criteria:
 
@@ -38,7 +40,7 @@ Acceptance criteria:
 Steps:
 
 1. Build the desktop sidebar/header and responsive mobile navigation.
-2. Link Inbox, Tags, Accounts and Settings, with an identifiable active destination.
+2. Link Inbox (`/inbox`), Tags, Accounts and Settings, with an identifiable active destination and a Personal/Work switcher. Keep `/` as the public landing page with an **Open inbox** action.
 3. Preserve meaningful page titles and browser navigation behavior.
 4. Test every navigation entry at desktop and mobile widths using keyboard and pointer.
 
@@ -70,13 +72,14 @@ Steps:
 1. Refresh Supabase session cookies in `src/proxy.ts` and redirect unsigned private-page requests to sign-in.
 2. Independently call `requireUser()` on protected APIs; never trust page protection as API authorization.
 3. Enforce same-origin mutation checks and server-side user scoping.
-4. Test stale cookies, signed-out access, auth callback/public unsubscribe exceptions and user A requesting user B's resource IDs.
+4. Test stale cookies, signed-out access, public homepage/provider SVGs, callback/unsubscribe exceptions, legacy deep-link redirects and user A requesting user B's resource IDs.
 
 Acceptance criteria:
 
 - Private APIs reject unauthenticated requests even when called directly.
 - Untrusted mutation Origin is rejected and cross-tenant resource IDs yield safe not-found behavior.
-- Public callback/unsubscribe routes remain functional without opening unrelated private routes.
+- The homepage, exact provider SVG asset paths, callback and unsubscribe routes remain public without opening unrelated private routes. Homepage metadata is indexable; app metadata remains noindex.
+- Legacy root email/workspace links redirect to `/inbox` with parameters preserved.
 - Browser session verification and real two-user tests remain pending until executed externally.
 
 ## 2.6 TypeScript Types and API Helpers

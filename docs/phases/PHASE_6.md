@@ -9,7 +9,7 @@ Steps:
 1. Configure VAPID public/private keys and contact subject as server environment values; register the service worker on supported HTTPS browsers.
 2. Ask permission through an explicit user action and store the subscription only for the verified user with an allowed push-service endpoint.
 3. Select HIGH-priority current-version matched emails above the notification minimum that are unread, unhandled and not already claimed.
-4. Conditionally claim the classification, send a minimal notification with a local email link, prune 404/410 subscriptions, and clear the claim if no send succeeds.
+4. Conditionally claim the classification, send an evailbox notification with a local `/inbox?email=…&workspace=…` link, prune 404/410 subscriptions, and clear the claim if no send succeeds.
 5. Exercise authorized test delivery, permission denial/revocation, expired endpoint, multiple tabs/devices, deep-link navigation and repeat invocation.
 
 Acceptance criteria:
@@ -26,8 +26,8 @@ Steps:
 
 1. Configure Resend key and verified sender, plus opt-in, local HH:mm time and IANA timezone.
 2. Evaluate due windows in local time and map midnight-adjacent windows to the scheduled local date.
-3. Claim the unique `(userId,localDate)` delivery record with a lease; paginate all current matches in the immutable windowEnd interval, group by tag and escape HTML. Persist the exact request payload before sending and reuse it unchanged on retries.
-4. Include working app links and unsubscribe page/token; send with the stable history-derived idempotency key.
+3. Claim the unique `(userId,localDate)` delivery record with a lease; paginate all current matches in the immutable windowEnd interval, group by workspace and tag and escape HTML. Persist the exact request payload before sending and reuse it unchanged on retries.
+4. Include evailbox branding, workspace-aware `/inbox` links and unsubscribe page/token; send with the stable history-derived idempotency key.
 5. Record sent/failed status and provider ID; retry failures safely within the scheduling policy.
 6. Test concurrent runs, repeat date, empty digest, HTML injection, local midnight, DST transitions, unsubscribe, provider rejection and actual authorized recipient delivery.
 
@@ -48,6 +48,7 @@ Steps:
 3. Check mobile navigation, long-content wrapping, scroll containment, dialogs and focus return.
 4. Test keyboard-only navigation, reduced-motion preference where motion exists and readable priority/probability states without color.
 5. Verify demo labels and production copy accurately state sync scope, uncertainty and notification limitations.
+6. Check the public landing page, retained box gradients, cool off-white app canvas, Inter typography and shared Gmail/Outlook SVGs against the [theme notes](../engineering/THEME.md).
 
 Acceptance criteria:
 
@@ -65,22 +66,26 @@ Steps:
 3. For failures, record reproduction, fix, and rerun only the affected flow plus relevant regression checks.
 4. Preserve screenshots/log excerpts only when they do not expose personal email or secrets.
 
-| Check                                | Required observation                             | Evidence status before execution         |
-| ------------------------------------ | ------------------------------------------------ | ---------------------------------------- |
-| Sign-in / sign-out / expired session | Correct navigation and private API rejection     | Pending live auth                        |
-| Gmail and Outlook connection         | Identity, scopes, encrypted tokens, refresh      | Pending external                         |
-| Multi-page sync and updates          | No duplicate IDs; read/move/delete reflected     | Pending external                         |
-| Tag create/edit/delete               | Validation, uniqueness, invalidation, cascades   | Pending local browser + live persistence |
-| Jev classification                   | Native typed result, uncertainty/error handling  | Fixtures separate; live pending          |
-| Inbox views and filters              | Combined search/tag/account/date, pagination     | Pending browser review                   |
-| Email detail and handled             | Escaped text, persistence, provider link         | Pending browser review                   |
-| Settings and refresh                 | Saved defaults/timezone/ranges, query polling    | Pending browser review                   |
-| Push                                 | Permission, receipt, deep link, invalid endpoint | Pending external browser delivery        |
-| Digest/unsubscribe                   | Correct grouping/local date/idempotency/opt-out  | Pending external delivery                |
-| Tenant isolation                     | A cannot read/mutate/classify/sync B resources   | Pending two-user integration             |
-| Mobile/keyboard                      | Reachable controls, focus, no clipped layout     | Pending browser review                   |
-| Delete account                       | Auth identity and owned records removed          | Pending authorized destructive test      |
-| Cron and 24-hour observation         | Actual scheduled runs and delivery/error review  | Pending deployment + elapsed observation |
+| Check                                | Required observation                               | Recorded evidence / remaining acceptance                            |
+| ------------------------------------ | -------------------------------------------------- | ------------------------------------------------------------------- |
+| Homepage, routing and logos          | `/`, `/inbox`, legacy redirects, public SVGs       | Source/HTTP and route tests pass; final appearance pending          |
+| Personal/Work and brand storage      | Separate records, persisted selection, legacy keys | Fixtures and scoped demo switching reviewed; live migration pending |
+| Sign-in / sign-out / expired session | Correct navigation and private API rejection       | Pending live auth                                                   |
+| Gmail and Outlook connection         | Identity, scopes, encrypted tokens, refresh        | Pending external                                                    |
+| Multi-page sync and updates          | No duplicate IDs; read/move/delete reflected       | Pending external                                                    |
+| Tag create/edit/delete               | Validation, uniqueness, invalidation, cascades     | Demo card/form flows reviewed; live persistence pending             |
+| Jev classification                   | Native typed result, uncertainty/error handling    | Fixtures separate; live pending                                     |
+| Inbox views and filters              | Combined search/tag/account/date, pagination       | Scoped demo review; final/live checks pending                       |
+| Email detail and handled             | Escaped text, persistence, provider link           | Scoped demo review; final/live checks pending                       |
+| Settings and refresh                 | Saved defaults/timezone/ranges, query polling      | Scoped demo review; final/live checks pending                       |
+| Push                                 | Permission, receipt, deep link, invalid endpoint   | Pending external browser delivery                                   |
+| Digest/unsubscribe                   | Correct grouping/local date/idempotency/opt-out    | Pending external delivery                                           |
+| Tenant isolation                     | A cannot read/mutate/classify/sync B resources     | Pending two-user integration                                        |
+| Mobile/keyboard                      | Reachable controls, focus, no clipped layout       | Scoped demo review; final/live checks pending                       |
+| Delete account                       | Auth identity and owned records removed            | Pending authorized destructive test                                 |
+| Cron and 24-hour observation         | Actual scheduled runs and delivery/error review    | Pending deployment + elapsed observation                            |
+
+Detailed viewport, interaction and accessibility evidence is in [THEME.md](../engineering/THEME.md). [STATUS.md](STATUS.md) identifies the latest checked source revision. The last copy, background and logo changes have not had a fresh browser pass; manual screen-reader acceptance remains pending.
 
 Acceptance criteria:
 

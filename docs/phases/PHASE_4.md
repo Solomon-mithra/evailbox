@@ -6,8 +6,8 @@ Prerequisite: tenant-safe persistence and email synchronization. Native protocol
 
 Steps:
 
-1. Display the user's tag names, descriptions, priority and available match counts.
-2. Provide create, edit, delete and detail navigation with accessible controls and visible loading/empty/error states.
+1. Display the selected workspace's tag names, priority, rule prompts and aggregate match counts. Distinguish zero matches from an unavailable count.
+2. Provide a full-card link to matching mail, separate **Edit rule** control and secondary delete menu with confirmation/focus return. Keep create, loading, empty and error states accessible.
 3. Keep priority readable without color alone; isolate demo mutations.
 4. Test zero tags, maximum tags, long names/descriptions and narrow layouts.
 
@@ -37,15 +37,15 @@ Acceptance criteria:
 
 Steps:
 
-1. Implement own-tag list/get/create/patch/delete with userId scoping.
-2. Normalize nameKey to lowercase and enforce per-user uniqueness plus the 30-tag limit.
+1. Implement own-tag list/get/create/patch/delete with userId and workspace scoping.
+2. Normalize nameKey to lowercase and enforce per-user/workspace uniqueness plus the 30-tag limit per workspace.
 3. On edit, increment tag version and invalidate its existing classification rows transactionally.
 4. Delete with cascades and preserve other users' tags.
 5. Test concurrent duplicate names, wrong-owner IDs, patch validation and version invalidation.
 
 Acceptance criteria:
 
-- Same-user case-insensitive name collision produces conflict; another user may reuse the name.
+- Case-insensitive name collisions conflict within a user/workspace; another workspace or user may reuse the name.
 - Edits cannot leave old results appearing current.
 - Cross-tenant reads/mutations fail safely and deletes affect only the selected tag's results.
 
@@ -72,14 +72,14 @@ Acceptance criteria:
 Steps:
 
 1. Implement single `/api/classify` and bounded `/api/classify/batch` with optional tag selection.
-2. Validate up to 20 explicit email IDs and verify all requested resources belong to the caller before inference.
+2. Validate up to 20 explicit email IDs and verify all requested resources belong to the caller and selected workspace before inference.
 3. Persist one classification per email/tag with tagVersion, decision, probability, trace and notification marker.
 4. Skip every existing current-version result, including no-match and uncertain, unless a force evaluation was explicitly requested; process up to 100 candidate emails per pass.
 5. Return classified/errors/remaining counters and persist requested work for automatic continuation; test invalid IDs, wrong owners, current/stale versions, partial errors, concurrent tag edits and deadline exhaustion.
 
 Acceptance criteria:
 
-- A caller cannot classify another user's mail or tag.
+- A caller cannot classify another user's mail or tag, or pair email and rules from different workspaces.
 - Stale results are hidden; current results are reused during ordinary batches.
 - Failed evaluations do not create fabricated no-match rows and remain retryable.
 - Endpoint responses distinguish successful work from errors and deferred work.

@@ -2,6 +2,8 @@
 
 The supplied palette is adapted to an inbox used frequently throughout the day. Forest green anchors navigation and primary actions. White email surfaces protect reading contrast. Lime marks the active page and high-priority groups; mint and cyan support medium- and low-priority tags. Priority labels, icons, and tab underlines accompany color. Errors and destructive actions retain red semantics.
 
+All app pages use the cool off-white canvas `#f8fafc`, including sign-in and standalone app states. Page-heading boxes retain their lime/mint gradients. The public landing page has separately scoped `#fbfcf9` and a green radial hero backdrop; the app-background adjustment does not flatten those surfaces.
+
 The main implementation lives in `src/app/globals.css`. Theme tokens are shared by navigation, inbox rows, settings, dialogs, forms, sign-in, and notifications. `src/app/layout.tsx` loads a local variable Inter font with `next/font/local` and a swap fallback. No runtime font request goes to a third party.
 
 ## Typography and interaction choices
@@ -26,20 +28,20 @@ Ratios use WCAG relative luminance calculations. Bright emerald and blue are pal
 | Pair                                                     |   Ratio |
 | -------------------------------------------------------- | ------: |
 | Teal reading text / white                                | 13.51:1 |
-| Secondary text / canvas                                  |  5.52:1 |
+| Secondary text / canvas                                  |  5.55:1 |
 | White / forest primary button                            | 10.14:1 |
 | Forest / lime active navigation                          |  8.14:1 |
 | Olive / lime high-priority badge                         |  8.06:1 |
 | Sidebar secondary text / forest                          |  6.66:1 |
 | Secondary text / darkest possible heading gradient color |  4.66:1 |
-| Control border / canvas                                  |  3.20:1 |
+| Control border / canvas                                  |  3.22:1 |
 | Control border / white                                   |  3.37:1 |
 
 References: [WCAG text contrast](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html), [minimum target sizing](https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html), and [text spacing](https://www.w3.org/WAI/WCAG22/Understanding/text-spacing.html).
 
-## Verification — 2026-09-21
+## Initial theme verification — 2026-09-21
 
-- All 82 tests pass; ESLint and the production build (including TypeScript) pass.
+- At this theme milestone, all 82 tests passed; ESLint and the production build (including TypeScript) pass.
 - Browser review covers inbox, email detail, tags, tag creation form, accounts, settings, sign-in, workspace selection, and notification styling.
 - Automated axe-core 4.13.0 checks found no WCAG A/AA violations in the tested desktop inbox, mobile routes, and tag dialog. Gradient backgrounds require manual checks; the relevant color endpoints were checked separately. This is a scoped check, not a full accessibility certification.
 - Layout checked at 320, 390, 768, 1024, and 1440 CSS pixels. The narrow inbox does not cause horizontal document scrolling. Tablet form/search/filter controls compute to 16px.
@@ -47,7 +49,9 @@ References: [WCAG text contrast](https://www.w3.org/WAI/WCAG22/Understanding/con
 - Verified search by keyboard shortcut, actual filtered results, arrow-key tab navigation, dialog Escape/focus restoration, and Personal/Work switching on mobile.
 - Independent source review identified a tablet font-size specificity gap, corrected and verified in the browser.
 
-Production previews: [desktop](theme/desktop.png) and [mobile](theme/mobile.png). Both use synthetic demo mail.
+Historical theme previews (before the evailbox rename and final canvas adjustment): [desktop](theme/desktop.png) and [mobile](theme/mobile.png). Both use synthetic demo mail.
+
+The milestone test counts below are historical. See [STATUS.md](../phases/STATUS.md) for the latest source baseline, check results and remaining acceptance.
 
 Font source: [Inter variable WOFF2](https://github.com/rsms/inter/blob/master/docs/font-files/InterVariable.woff2). The upstream SIL Open Font License is included in `src/app/fonts/LICENSE.txt`.
 
@@ -59,7 +63,7 @@ The page uses **Check for matches** consistently, and a short contextual hint re
 
 Verified full-card navigation, independent edit/menu controls, deletion cancellation and focus restoration, zero matches, long names/rules/keywords, sender counts, and the check-for-matches action. A temporary demo tag used for these checks was removed. Desktop and mobile axe checks reported no violations in the tested states; 320–1440px layouts, 200% text size, and text-spacing overrides did not introduce card or document overflow. All 82 tests, lint, typecheck, and the production build passed.
 
-Updated previews: [tags on desktop](theme/tags-desktop.png) and [tags on mobile](theme/tags-mobile.png).
+Historical tag-card previews (before the evailbox rename and final canvas adjustment): [tags on desktop](theme/tags-desktop.png) and [tags on mobile](theme/tags-mobile.png).
 
 ## evailbox landing page and identity
 
@@ -79,4 +83,10 @@ Navigation, authentication callbacks, reset destinations, digest links, push not
 
 Browser storage moves to evailbox keys with a compatibility reader for the previous keys. Existing rules, workspace choice, and demo edits are preserved. Only known generated demo-email sentences and classification explanations receive a copy update; user-written rules stay unchanged. Technical Jev model identifiers and historical repository/deployment URLs retain their actual values.
 
-Validation: 100 tests, lint, production build with TypeScript, and production HTTP checks passed. Checks cover public/private routing, refreshed auth cookies, delivered links, legacy redirects, demo migration, blocked storage writes, and preservation of custom rules. Browser review exercised Personal/Work example switching by pointer and keyboard, 320–1440px layouts, 200% text, and text-spacing overrides. The checked mobile landing state had no automated axe A/AA violations; gradient contrast was checked separately. Browser control was returned to the user before the final copy-only change, so final copy and routes were verified against production HTML rather than through a further browser pass.
+At the landing-page milestone: 100 tests, lint, production build with TypeScript, and production HTTP checks passed. Checks cover public/private routing, refreshed auth cookies, delivered links, legacy redirects, demo migration, blocked storage writes, and preservation of custom rules. Browser review exercised Personal/Work example switching by pointer and keyboard, 320–1440px layouts, 200% text, and text-spacing overrides. The checked mobile landing state had no automated axe A/AA violations; gradient contrast was checked separately. Browser control was returned to the user before the final copy-only change, so final copy and routes were verified against production HTML rather than through a further browser pass.
+
+## Final background and provider-logo refinements
+
+The user-requested canvas change applies across app pages, including sign-in, while preserving the page-heading gradients and landing-page background. Shared official Gmail and Outlook SVGs replace placeholders in Accounts, its embedded Settings view and the landing provider strip. Logo dimensions, accessibility treatment and provenance are recorded in [PROVIDER_LOGOS.md](PROVIDER_LOGOS.md).
+
+These final adjustments were checked through source, automated checks and HTTP asset/HTML responses as applicable. They were made after browser control returned to the user, so they do not have a fresh visual/browser acceptance record. Earlier screenshots and axe results must not be presented as final-release screenshots or full accessibility certification.
