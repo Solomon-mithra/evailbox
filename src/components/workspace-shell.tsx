@@ -41,7 +41,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   return (
     <div className="app-shell">
       <Navigation />
-      <div className="main-shell">
+      <div className={pathname === '/inbox' ? 'main-shell inbox-shell' : 'main-shell'}>
         <div className="topbar">
           <span className="workspace-crumb">
             {name} <ChevronRight size={13} /> <strong>{section}</strong>

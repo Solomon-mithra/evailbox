@@ -355,6 +355,12 @@ h1 {
 .page-heading > .button {
   margin-top: 0;
 }
+.inbox-shell {
+  background: #f8fafc;
+}
+.inbox-shell .page-heading {
+  background: #fff;
+}
 .button {
   display: inline-flex;
   align-items: center;
