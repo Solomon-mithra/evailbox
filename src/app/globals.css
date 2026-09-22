@@ -35,7 +35,7 @@
   --teal: #053438;
   --blue: #2180e6;
   --cyan: #bdf0ec;
-  --canvas: #f7faf6;
+  --canvas: #f8fafc;
   --control-border: #7b9185;
   --mint-soft: #eaf7e7;
   --cyan-soft: #e8f8f6;
@@ -354,9 +354,6 @@ h1 {
 }
 .page-heading > .button {
   margin-top: 0;
-}
-.inbox-shell {
-  background: #f8fafc;
 }
 .button {
   display: inline-flex;
@@ -1582,9 +1579,7 @@ h1 {
   display: flex;
   flex-direction: column;
   align-items: center;
-  background:
-    radial-gradient(ellipse at 90% 15%, #cbf39db3, transparent 55%),
-    radial-gradient(ellipse at 0% 90%, #bdf0ec99, transparent 60%), var(--canvas);
+  background: var(--canvas);
 }
 .signin-page > .brand {
   align-self: flex-start;
