@@ -2,6 +2,9 @@ import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 export async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
+  if (path === '/brands/gmail.svg' || path === '/brands/outlook.svg') {
+    return NextResponse.next();
+  }
   if (path === '/') {
     // Keep bookmarks and previously delivered email links pointing at the inbox.
     if (

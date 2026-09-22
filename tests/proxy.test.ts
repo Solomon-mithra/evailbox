@@ -71,3 +71,12 @@ describe('public homepage and inbox routing', () => {
     expect(auth.createClient).not.toHaveBeenCalled();
   });
 });
+
+it.each(['/brands/gmail.svg', '/brands/outlook.svg'])(
+  'serves public landing logo %s without authentication',
+  async (path) => {
+    const response = await proxy(request(path));
+    expect(response.headers.get('x-middleware-next')).toBe('1');
+    expect(auth.createClient).not.toHaveBeenCalled();
+  },
+);

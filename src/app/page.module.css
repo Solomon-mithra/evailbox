@@ -159,16 +159,6 @@
   font-weight: 550;
   color: var(--ink);
 }
-.outlookIcon {
-  display: grid;
-  place-items: center;
-  width: 17px;
-  height: 16px;
-  color: #fff;
-  background: var(--forest);
-  border-radius: 3px;
-  font-size: 0.625rem;
-}
 .heroExample {
   position: relative;
   min-width: 0;

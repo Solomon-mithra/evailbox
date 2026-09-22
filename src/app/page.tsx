@@ -9,13 +9,13 @@ import {
   CircleCheck,
   Layers2,
   LockKeyhole,
-  Mail,
   ShieldCheck,
   SlidersHorizontal,
   Unplug,
 } from 'lucide-react';
 import { BrandMark } from '@/components/brand-mark';
 import { LandingExample } from '@/components/landing-example';
+import { ProviderLogo } from '@/components/provider-logo';
 import styles from './page.module.css';
 
 export const metadata: Metadata = {
@@ -109,13 +109,10 @@ export default function HomePage() {
               <div className={styles.compatibility}>
                 <span>Works with</span>
                 <span className={styles.provider}>
-                  <Mail size={17} aria-hidden="true" /> Gmail
+                  <ProviderLogo provider="GMAIL" size={20} /> Gmail
                 </span>
                 <span className={styles.provider}>
-                  <span className={styles.outlookIcon} aria-hidden="true">
-                    O
-                  </span>{' '}
-                  Outlook
+                  <ProviderLogo provider="OUTLOOK" size={20} /> Outlook
                 </span>
               </div>
             </div>

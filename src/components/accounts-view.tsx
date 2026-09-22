@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import Image from 'next/image';
+import { ProviderLogo } from './provider-logo';
 import { RefreshCw, Plus, ShieldCheck, Unplug, Check } from 'lucide-react';
 import { useWorkspace, useAction } from '@/hooks/useFetch';
 import { useDemo } from './providers';
@@ -13,20 +13,6 @@ import { EmptyState, ErrorState } from './states';
 import type { EmailAccount } from '@/types';
 import { relativeTime } from '@/lib/utils';
 import { toast } from 'sonner';
-
-function ProviderLogo({ provider }: { provider: EmailAccount['provider'] }) {
-  return (
-    <Image
-      src={provider === 'GMAIL' ? '/brands/gmail.svg' : '/brands/outlook.svg'}
-      alt=""
-      aria-hidden="true"
-      width={28}
-      height={28}
-      unoptimized
-      style={{ objectFit: 'contain' }}
-    />
-  );
-}
 
 export function AccountsView({ embedded = false }: { embedded?: boolean }) {
   const { workspace, name } = useWorkspaceSelection();
