@@ -60,3 +60,23 @@ The page uses **Check for matches** consistently, and a short contextual hint re
 Verified full-card navigation, independent edit/menu controls, deletion cancellation and focus restoration, zero matches, long names/rules/keywords, sender counts, and the check-for-matches action. A temporary demo tag used for these checks was removed. Desktop and mobile axe checks reported no violations in the tested states; 320–1440px layouts, 200% text size, and text-spacing overrides did not introduce card or document overflow. All 82 tests, lint, typecheck, and the production build passed.
 
 Updated previews: [tags on desktop](theme/tags-desktop.png) and [tags on mobile](theme/tags-mobile.png).
+
+## evailbox landing page and identity
+
+The public homepage at `/` introduces evailbox to people managing busy personal and work inboxes. The dashboard now lives at `/inbox`. The landing page leads with “Important emails. Out of the noise.” and demonstrates the core workflow: a rule written in ordinary language produces relevant email matches. Visitors can switch the illustrative example between Personal and Work. The primary action is **Open inbox**.
+
+| Before                                                   | After                                                         | Why                                                                                           |
+| -------------------------------------------------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Root opened the application directly                     | Public homepage at `/`, application at `/inbox`               | Explain the product before asking a new visitor to use it                                     |
+| Generic inbox preview                                    | Interactive rule-to-matches example                           | Show what makes the product useful across work and personal mail                              |
+| Previous product name and layered icon                   | Lowercase evailbox wordmark and shared envelope mark          | Consistent identity across navigation, sign-in, metadata, favicon, notifications, and digests |
+| Changing a tab could animate through low-contrast colors | Immediate example selection with visible keyboard focus       | Preserve contrast during keyboard and pointer changes                                         |
+| Enlarged text could overflow the narrow example          | Wrapping selectors, flexible text, and relative avatar sizing | Preserve content and controls at 200% text size                                               |
+
+The page uses the existing Inter font and forest/lime tokens, 16–17px introduction text, 12px minimum example metadata, visible selection and focus, and 44–52px primary targets. Supporting text against the strongest hero gradient endpoint measures 4.99:1, the secondary headline 5.16:1 against the base background, and primary button text 10.14:1. Company-style presentation uses actual product capabilities, explicit example labeling, and practical mailbox/AI explanations, without invented customer counts, endorsements, or performance claims.
+
+Navigation, authentication callbacks, reset destinations, digest links, push notifications, and the service-worker fallback point to `/inbox`. Previously delivered `/?email=…&workspace=…` links redirect with their parameters preserved. In live mode, `/` bypasses authentication; `/inbox` and existing application routes remain protected. The homepage is indexable while application metadata retains noindex.
+
+Browser storage moves to evailbox keys with a compatibility reader for the previous keys. Existing rules, workspace choice, and demo edits are preserved. Only known generated demo-email sentences and classification explanations receive a copy update; user-written rules stay unchanged. Technical Jev model identifiers and historical repository/deployment URLs retain their actual values.
+
+Validation: 100 tests, lint, production build with TypeScript, and production HTTP checks passed. Checks cover public/private routing, refreshed auth cookies, delivered links, legacy redirects, demo migration, blocked storage writes, and preservation of custom rules. Browser review exercised Personal/Work example switching by pointer and keyboard, 320–1440px layouts, 200% text, and text-spacing overrides. The checked mobile landing state had no automated axe A/AA violations; gradient contrast was checked separately. Browser control was returned to the user before the final copy-only change, so final copy and routes were verified against production HTML rather than through a further browser pass.

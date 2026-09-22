@@ -110,6 +110,7 @@ describe('digest snapshot and retries', () => {
     await sendDigests();
     const body = JSON.parse(fetchFixture.mock.calls[0][1].body);
     expect(body.html).toContain('Subject-200');
+    expect(body.html).toContain('https://app.example/inbox?workspace=PERSONAL&amp;email=e0');
     expect(body.html).toContain('201 Personal · Work');
     expect(fixture.db.emailClassification.findMany.mock.calls[0][0].where.createdAt).toEqual({
       gte: previous.windowEnd,
@@ -175,6 +176,16 @@ describe('push deadline', () => {
       { ...match(1), id: 'c1', emailId: 'e1' },
     ]);
     fixture.db.emailClassification.updateMany.mockResolvedValue({ count: 1 });
+  });
+  it('links push notifications to the inbox with their workspace and encoded email ID', async () => {
+    fixture.db.emailClassification.findMany.mockResolvedValue([
+      { ...match(1), emailId: 'email/1', workspace: 'WORK' },
+    ]);
+    fixture.send.mockResolvedValue({});
+    await notifyUser('u1');
+    expect(JSON.parse(fixture.send.mock.calls[0][1]).url).toBe(
+      '/inbox?workspace=WORK&email=email%2F1',
+    );
   });
   it('never claims a notification after the shared deadline', async () => {
     await notifyUser('u1', Date.now() - 1);

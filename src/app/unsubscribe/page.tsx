@@ -8,7 +8,7 @@ export default function Page() {
   return (
     <main className="auth-loading" id="main-content">
       <h1>Daily digest preferences</h1>
-      <p>Stop receiving daily JevInbox summaries.</p>
+      <p>Stop receiving daily evailbox summaries.</p>
       <Button
         disabled={busy || status === 'You’re unsubscribed.'}
         onClick={async () => {

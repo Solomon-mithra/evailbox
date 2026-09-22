@@ -1,10 +1,11 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Layers2, ArrowRight, ShieldCheck } from 'lucide-react';
+import { ArrowRight, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { useDemo } from '@/components/providers';
 import { signIn } from '@/hooks/useAuth';
+import { BrandMark } from '@/components/brand-mark';
 export default function Page() {
   const demo = useDemo(),
     [busy, setBusy] = useState(false),
@@ -17,15 +18,15 @@ export default function Page() {
     <main className="signin-page" id="main-content">
       <Link href="/" className="brand">
         <span className="brand-mark">
-          <Layers2 size={20} />
+          <BrandMark size={34} />
         </span>
-        JevInbox
+        evailbox
       </Link>
       <div className="signin-card">
         <span className="signin-symbol">
-          <Layers2 size={36} />
+          <BrandMark size={48} />
         </span>
-        <h1>A calmer kind of inbox.</h1>
+        <h1>Make room for what matters.</h1>
         <p>
           Bring Gmail and Outlook together.
           <br />
@@ -34,8 +35,8 @@ export default function Page() {
         {demo ? (
           <>
             <Button asChild>
-              <Link href="/">
-                Explore the demo
+              <Link href="/inbox">
+                Open inbox
                 <ArrowRight size={17} />
               </Link>
             </Button>
@@ -67,7 +68,7 @@ export default function Page() {
           Your email stays private and in your control.
         </div>
       </div>
-      <footer>JevInbox · A little more focus.</footer>
+      <footer>evailbox · Email, on your terms.</footer>
     </main>
   );
 }

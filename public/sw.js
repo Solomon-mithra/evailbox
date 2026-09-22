@@ -9,18 +9,22 @@
       return;
     }
     event.waitUntil(
-      self.registration.showNotification(data.title ?? "JevInbox", {
+      self.registration.showNotification(data.title ?? "evailbox", {
         body: data.body ?? "A priority email needs you.",
-        tag: data.tag ?? "jevinbox",
+        tag: data.tag ?? "evailbox",
         icon: "/icon.svg",
-        data: { url: data.url ?? "/" }
+        data: { url: data.url ?? "/inbox" }
       })
     );
   });
   self.addEventListener("notificationclick", (event) => {
     event.notification.close();
-    const candidate = new URL(String(event.notification.data?.url ?? "/"), self.location.origin);
-    const target = candidate.origin === self.location.origin ? candidate.href : self.location.origin;
+    const fallback = new URL("/inbox", self.location.origin);
+    const candidate = new URL(
+      String(event.notification.data?.url ?? fallback.href),
+      self.location.origin
+    );
+    const target = candidate.origin === self.location.origin ? candidate.href : fallback.href;
     event.waitUntil(
       self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(async (clients) => {
         const existing = clients[0];

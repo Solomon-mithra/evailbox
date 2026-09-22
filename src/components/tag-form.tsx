@@ -24,7 +24,7 @@ export function TagForm({
       open={open}
       onOpenChange={onOpenChange}
       title={tag ? 'Edit tag' : 'Create a tag'}
-      description="Tell Jev what matters to you. Be specific about what should match."
+      description="Tell evailbox what matters to you. Be specific about what should match."
     >
       {open && <Form key={tag?.id ?? 'new'} tag={tag} close={() => onOpenChange(false)} />}
     </Dialog>
@@ -104,7 +104,7 @@ function Form({ tag, close }: { tag?: Tag; close: () => void }) {
         <Input placeholder="A short description for this tag" {...register('description')} />
       </label>
       <label>
-        What should Jev look for?
+        What should evailbox look for?
         <Textarea
           placeholder="Match official notices about my immigration case, including interview invitations and requests for documents."
           rows={4}

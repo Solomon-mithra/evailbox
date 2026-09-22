@@ -1,6 +1,19 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 export async function proxy(request: NextRequest) {
+  const path = request.nextUrl.pathname;
+  if (path === '/') {
+    // Keep bookmarks and previously delivered email links pointing at the inbox.
+    if (
+      request.nextUrl.searchParams.has('email') ||
+      request.nextUrl.searchParams.has('workspace')
+    ) {
+      const inbox = request.nextUrl.clone();
+      inbox.pathname = '/inbox';
+      return NextResponse.redirect(inbox);
+    }
+    return NextResponse.next();
+  }
   if (process.env.APP_MODE === 'demo') return NextResponse.next();
   let response = NextResponse.next({ request });
   const supabase = createServerClient(
@@ -26,7 +39,6 @@ export async function proxy(request: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  const path = request.nextUrl.pathname;
   const publicRoute =
     path === '/signin' ||
     path === '/callback' ||
@@ -38,7 +50,7 @@ export async function proxy(request: NextRequest) {
     return redirect;
   }
   if (user && path === '/signin') {
-    const redirect = NextResponse.redirect(new URL('/', request.url));
+    const redirect = NextResponse.redirect(new URL('/inbox', request.url));
     response.cookies.getAll().forEach((c) => redirect.cookies.set(c));
     return redirect;
   }

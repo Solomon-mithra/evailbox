@@ -1,6 +1,6 @@
-# JevInbox
+# evailbox
 
-A focused inbox for Gmail and Outlook. Define custom tags, let Jev evaluate each email against your criteria, and review important messages with explicit match probabilities.
+A focused inbox for Gmail and Outlook. Define custom tags, let AI evaluate each email against your criteria, and review important messages with explicit match probabilities.
 
 Built with Next.js 16.3.5, React 19, strict TypeScript, Tailwind CSS 4, shadcn-style Radix components, Supabase Auth/PostgreSQL, Prisma, and Vercel AI Gateway.
 
@@ -15,7 +15,7 @@ npm run db:generate
 npm run dev
 ```
 
-Open http://localhost:3000. `APP_MODE=demo` provides a clearly labeled workspace with sample emails and browser-local state. Demo actions do not call email providers, Jev, or delivery services. Missing credentials never silently enable demo mode.
+Open http://localhost:3000 for the homepage, or http://localhost:3000/inbox for the dashboard. `APP_MODE=demo` provides a clearly labeled workspace with sample emails and browser-local state. Demo actions do not call email providers, Jev, or delivery services. Missing credentials never silently enable demo mode.
 
 ## What is implemented
 

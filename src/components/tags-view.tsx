@@ -51,7 +51,7 @@ export function TagsView({ tagId }: { tagId?: string }) {
         <div>
           <h1>{tagId ? (tag?.name ?? 'Tag details') : 'Tags'}</h1>
           <p>
-            {tagId ? tag?.description : 'Choose what matters. Jev finds the emails that match.'}
+            {tagId ? tag?.description : 'Choose what matters. evailbox finds the emails that match.'}
           </p>
         </div>
         <div className="heading-actions">
@@ -96,7 +96,7 @@ export function TagsView({ tagId }: { tagId?: string }) {
                 <TagBadge tag={tag} />
                 <span className="priority-label">{tag.priority.toLowerCase()} priority</span>
               </div>
-              <h3>What Jev looks for</h3>
+              <h3>What evailbox looks for</h3>
               <p>{tag.prompt}</p>
               <div className="keyword-list">
                 {[...tag.keywords, ...tag.senders].map((k) => (

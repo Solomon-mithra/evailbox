@@ -387,7 +387,7 @@ export function InboxView() {
                       ) : (
                         <EmptyState
                           title="Make this inbox yours"
-                          message="Create a tag and tell Jev what to look for."
+                          message="Create a tag and tell evailbox what to look for."
                           action={
                             <Button asChild variant="outline">
                               <Link href="/tags">Create your first tag</Link>

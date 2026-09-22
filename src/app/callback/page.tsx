@@ -5,7 +5,7 @@ import { Loader } from '@/components/ui/loader';
 export default function Page() {
   const router = useRouter();
   useEffect(() => {
-    router.replace('/');
+    router.replace('/inbox');
   }, [router]);
   return (
     <main className="auth-loading">

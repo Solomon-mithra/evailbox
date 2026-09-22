@@ -10,8 +10,8 @@ const inter = localFont({
   weight: '100 900',
 });
 export const metadata: Metadata = {
-  title: 'JevInbox — Your inbox, in order',
-  description: 'A focused workspace for Gmail and Outlook, organized by your rules with Jev.',
+  title: 'evailbox — Your inbox, in order',
+  description: 'A focused workspace for Gmail and Outlook, organized around your priorities with AI.',
   robots: { index: false, follow: false },
 };
 export const dynamic = 'force-dynamic';

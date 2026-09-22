@@ -1,10 +1,10 @@
-# JevInbox product requirements
+# evailbox product requirements
 
 Revision: 2026-09-21. Scope ends at Phase 6. This document defines intended behavior and acceptance; it is not proof of live validation. See the phase documents and runbook for executable checks.
 
 ## Problem and audience
 
-People monitoring several email accounts need a focused view of messages that meet their own criteria: urgent customer issues, invoices, hiring conversations, or project updates. Existing folder rules struggle with semantic criteria. JevInbox lets an individual define a tag in ordinary language and evaluate incoming email against it while retaining a clear route back to the provider.
+People monitoring several email accounts need a focused view of messages that meet their own criteria: urgent customer issues, invoices, hiring conversations, or project updates. Existing folder rules struggle with semantic criteria. evailbox lets an individual define a tag in ordinary language and evaluate incoming email against it while retaining a clear route back to the provider.
 
 ## Product outcome
 

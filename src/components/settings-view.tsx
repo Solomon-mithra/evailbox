@@ -217,7 +217,7 @@ export function SettingsView() {
         description={
           demo
             ? 'This resets both Personal and Work, removing your local demo changes and restoring the Personal sample data.'
-            : 'Your JevInbox account and all stored data will be permanently removed. Your provider emails are unaffected.'
+            : 'Your evailbox account and all stored data will be permanently removed. Your provider emails are unaffected.'
         }
         label={demo ? 'Reset demo' : 'Delete permanently'}
         onConfirm={async () => {
@@ -226,7 +226,7 @@ export function SettingsView() {
             method: 'DELETE',
             body: { confirm: 'DELETE' },
           });
-          window.location.assign(demo ? '/' : '/signin');
+          window.location.assign(demo ? '/inbox' : '/signin');
         }}
       />
     </>

@@ -1,5 +1,5 @@
 import { beforeEach, it, expect } from 'vitest';
-import { readDemo, mutateDemo, filterWorkspace } from '../src/lib/demo';
+import { readDemo, mutateDemo, filterWorkspace, seedDemo } from '../src/lib/demo';
 const store = new Map<string, string>();
 beforeEach(() => {
   store.clear();
@@ -87,4 +87,83 @@ it('persists tags independently in each workspace', () => {
 it('cannot alter Personal messages from Work', () => {
   mutateDemo('/api/emails/demo-0', 'PATCH', { handled: true }, 'WORK');
   expect(readDemo('PERSONAL').emails[0].handled).toBe(false);
+});
+
+it.each(['PERSONAL', 'WORK'] as const)(
+  'preserves %s data when migrating the previous brand storage',
+  (workspace) => {
+    const oldKey = workspace === 'PERSONAL' ? 'jevinbox-demo-v1' : 'jevinbox-demo-v1-work';
+    const newKey = workspace === 'PERSONAL' ? 'evailbox-demo-v1' : 'evailbox-demo-v1-work';
+    const saved = seedDemo();
+    saved.emails[0].handled = true;
+    saved.tags[0].name = 'My custom tag';
+    store.set(oldKey, JSON.stringify(saved));
+    const restored = readDemo(workspace);
+    expect(restored.emails[0].handled).toBe(true);
+    expect(restored.tags[0].name).toBe('My custom tag');
+    expect(store.has(newKey)).toBe(true);
+    expect(store.has(oldKey)).toBe(false);
+  },
+);
+
+it('reset removes both old and new demo workspaces without restoring deleted data', () => {
+  const saved = seedDemo();
+  saved.tags[0].name = 'Should be cleared';
+  for (const key of [
+    'jevinbox-demo-v1',
+    'jevinbox-demo-v1-work',
+    'evailbox-demo-v1',
+    'evailbox-demo-v1-work',
+  ]) {
+    store.set(key, JSON.stringify(saved));
+  }
+  mutateDemo('/api/user', 'DELETE', {});
+  expect(store.size).toBe(0);
+  expect(readDemo('PERSONAL').tags[0].name).toBe('Immigration');
+  expect(readDemo('WORK').tags).toEqual([]);
+});
+
+it('reads saved demo changes even when migrating storage cannot write', () => {
+  const saved = seedDemo();
+  saved.emails[0].handled = true;
+  saved.emails[0].body = 'This is a sample email in the JevInbox demo workspace.';
+  store.set('jevinbox-demo-v1', JSON.stringify(saved));
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: () => {
+        throw new Error('Storage quota');
+      },
+      removeItem: (key: string) => store.delete(key),
+    },
+    configurable: true,
+  });
+  const restored = readDemo();
+  expect(restored.emails[0].handled).toBe(true);
+  expect(restored.emails[0].body).toContain('evailbox demo workspace');
+  expect(store.has('jevinbox-demo-v1')).toBe(true);
+});
+
+it('prefers current data over an old brand backup', () => {
+  const old = seedDemo();
+  const current = seedDemo();
+  current.emails[0].handled = true;
+  store.set('jevinbox-demo-v1', JSON.stringify(old));
+  store.set('evailbox-demo-v1', JSON.stringify(current));
+  expect(readDemo().emails[0].handled).toBe(true);
+});
+
+it('renames generated sample copy without changing user-authored rules', () => {
+  const saved = seedDemo();
+  const prompt = 'Find emails mentioning a live Jev call or the JevInbox demo workspace.';
+  saved.tags[0].prompt = prompt;
+  saved.tags[0].keywords = ['live Jev call'];
+  saved.tags[0].name = 'JevInbox demo workspace';
+  saved.emails[0].body = 'This is a sample email in the JevInbox demo workspace.';
+  store.set('jevinbox-demo-v1', JSON.stringify(saved));
+  const restored = readDemo();
+  expect(restored.tags[0].prompt).toBe(prompt);
+  expect(restored.tags[0].keywords).toEqual(['live Jev call']);
+  expect(restored.tags[0].name).toBe('JevInbox demo workspace');
+  expect(restored.emails[0].body).toContain('evailbox demo workspace');
 });

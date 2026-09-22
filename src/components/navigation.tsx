@@ -10,9 +10,10 @@ import { useDemo } from './providers';
 import { signOut } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import { WorkspaceSwitcher } from './workspace-switcher';
+import { BrandMark } from './brand-mark';
 
 const links = [
-  { href: '/', label: 'Inbox', icon: Inbox },
+  { href: '/inbox', label: 'Inbox', icon: Inbox },
   { href: '/tags', label: 'Tags', icon: Tags },
   { href: '/accounts', label: 'Accounts', icon: Layers2 },
   { href: '/settings', label: 'Settings', icon: Settings2 },
@@ -34,17 +35,17 @@ function NavigationContent({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <>
-      <Link href="/" className="brand" onClick={onNavigate}>
+      <Link href="/inbox" className="brand" onClick={onNavigate}>
         <span className="brand-mark">
-          <Layers2 size={21} strokeWidth={1.7} />
+          <BrandMark size={34} />
         </span>
-        JevInbox
+        evailbox
       </Link>
       <WorkspaceSwitcher onSwitch={onNavigate} />
       <div className="sidebar-scroll">
         <nav aria-label="Main navigation">
           {links.map(({ href, label, icon: Icon }) => {
-            const active = href === '/' ? pathname === '/' : pathname.startsWith(href);
+            const active = href === '/inbox' ? pathname === '/inbox' : pathname.startsWith(href);
             return (
               <Link
                 key={href}
@@ -55,7 +56,7 @@ function NavigationContent({ onNavigate }: { onNavigate?: () => void }) {
               >
                 <Icon size={19} strokeWidth={1.7} />
                 <span>{label}</span>
-                {href === '/' && needs > 0 && <span className="nav-count">{needs}</span>}
+                {href === '/inbox' && needs > 0 && <span className="nav-count">{needs}</span>}
               </Link>
             );
           })}
@@ -83,18 +84,13 @@ function NavigationContent({ onNavigate }: { onNavigate?: () => void }) {
         </nav>
       </div>
       <div className="sidebar-bottom">
-        <a
-          className="sidebar-help"
-          href="https://vercel.com/i/what-is-jev"
-          target="_blank"
-          rel="noreferrer"
-        >
-          About Jev
+        <Link className="sidebar-help" href="/" onClick={onNavigate}>
+          About evailbox
           <ArrowUpRight size={14} />
-        </a>
+        </Link>
         <div className="profile">
           <span className="profile-avatar">
-            {data?.user.email.slice(0, 1).toUpperCase() ?? 'J'}
+            {data?.user.email.slice(0, 1).toUpperCase() ?? 'E'}
           </span>
           <div>
             <strong>
@@ -138,11 +134,11 @@ export function Navigation() {
       </aside>
       <Dialog.Root open={open} onOpenChange={setOpen}>
         <header className="mobile-bar">
-          <Link href="/" className="brand">
+          <Link href="/inbox" className="brand">
             <span className="brand-mark">
-              <Layers2 size={20} strokeWidth={1.7} />
+              <BrandMark size={34} />
             </span>
-            JevInbox
+            evailbox
           </Link>
           <Dialog.Trigger className="icon-button" aria-label="Open navigation">
             <Menu size={21} />

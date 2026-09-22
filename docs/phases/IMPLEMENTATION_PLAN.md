@@ -1,4 +1,4 @@
-# JevInbox implementation plan
+# evailbox implementation plan
 
 **Goal:** Deliver an email triage application with verified local behavior and a deployable production configuration.
 **Architecture:** Next.js App Router on Vercel; Supabase Auth and PostgreSQL accessed through tenant-scoped Prisma queries; independent Gmail and Graph OAuth connectors; typed Jev evaluation through Vercel Gateway. A clearly labeled, isolated demo allows UI evaluation without credentials.

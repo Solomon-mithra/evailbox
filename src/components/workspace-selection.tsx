@@ -1,8 +1,10 @@
 'use client';
 import { createContext, useContext, useEffect, useSyncExternalStore, type ReactNode } from 'react';
 import { workspaceNames, type WorkspaceId } from '@/lib/workspace-selection';
-const key = 'jevinbox-selected-workspace';
-const eventName = 'jevinbox-workspace-change';
+import { migrateStoredValue } from '@/lib/browser-storage';
+const key = 'evailbox-selected-workspace';
+const legacyKey = 'jevinbox-selected-workspace';
+const eventName = 'evailbox-workspace-change';
 let current: WorkspaceId | undefined;
 function snapshot(): WorkspaceId {
   const linked = new URLSearchParams(window.location.search).get('workspace');
@@ -10,14 +12,16 @@ function snapshot(): WorkspaceId {
   if (current) return current;
   if (new URLSearchParams(window.location.search).has('email')) return 'PERSONAL';
   try {
-    return localStorage.getItem(key) === 'WORK' ? 'WORK' : 'PERSONAL';
+    return (localStorage.getItem(key) ?? localStorage.getItem(legacyKey)) === 'WORK'
+      ? 'WORK'
+      : 'PERSONAL';
   } catch {
     return 'PERSONAL';
   }
 }
 function subscribe(callback: () => void) {
   const storage = (event: StorageEvent) => {
-    if (event.key === key) {
+    if (event.key === key || event.key === legacyKey) {
       current = undefined;
       callback();
     }
@@ -42,6 +46,7 @@ function select(workspace: WorkspaceId) {
 const Context = createContext({ workspace: 'PERSONAL' as WorkspaceId, name: 'Personal', select });
 export function WorkspaceSelection({ children }: { children: ReactNode }) {
   useEffect(() => {
+    migrateStoredValue(key, legacyKey);
     const linked = new URLSearchParams(window.location.search).get('workspace');
     if (linked === 'WORK' || linked === 'PERSONAL') select(linked);
     else if (new URLSearchParams(window.location.search).has('email')) select('PERSONAL');

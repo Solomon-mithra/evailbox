@@ -46,7 +46,7 @@ export async function notifyUser(userId: string, deadline = Date.now() + 10000) 
             JSON.stringify({
               title: `New ${match.tag.name} email`,
               body: `From ${match.email.senderName || match.email.sender}`,
-              url: `/?workspace=${match.workspace ?? 'PERSONAL'}&email=${encodeURIComponent(match.emailId)}`,
+              url: `/inbox?workspace=${match.workspace ?? 'PERSONAL'}&email=${encodeURIComponent(match.emailId)}`,
               tag: match.id,
             }),
             { TTL: 3600, timeout: Math.max(1, Math.min(5000, deadline - Date.now())) },

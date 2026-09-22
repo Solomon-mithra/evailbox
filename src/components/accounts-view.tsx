@@ -145,7 +145,7 @@ export function AccountsView({ embedded = false }: { embedded?: boolean }) {
           <div>
             <strong>Your email stays yours.</strong>
             <p>
-              Connections use read-only access. JevInbox never sends, archives, or deletes email in
+              Connections use read-only access. evailbox never sends, archives, or deletes email in
               your provider inbox. You can disconnect at any time.
             </p>
           </div>
@@ -156,7 +156,7 @@ export function AccountsView({ embedded = false }: { embedded?: boolean }) {
         onOpenChange={(v) => !v && setDisconnect(null)}
         title="Disconnect this account?"
         label="Disconnect"
-        description="The account and its synced emails will be removed from JevInbox. The emails in Gmail or Outlook are unaffected."
+        description="The account and its synced emails will be removed from evailbox. The emails in Gmail or Outlook are unaffected."
         onConfirm={async () => {
           await mutation.mutateAsync({ path: `/api/accounts/${disconnect!.id}`, method: 'DELETE' });
           toast.success('Account disconnected');

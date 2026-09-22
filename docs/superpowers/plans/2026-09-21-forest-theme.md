@@ -1,6 +1,6 @@
 # Forest theme implementation plan
 
-**Goal:** Apply the supplied forest, mint, and lime reference to JevInbox with a legible, consistent interface for frequent inbox use.
+**Goal:** Apply the supplied forest, mint, and lime reference to evailbox with a legible, consistent interface for frequent inbox use.
 
 **Architecture:** Keep the existing components and responsive layout. Replace hardcoded neutral colors with semantic CSS tokens in `src/app/globals.css`; load a local variable Inter font in `src/app/layout.tsx`. Preserve all workspace and email behavior.
 

@@ -70,11 +70,11 @@ async function buildPayload(
   const unsubscribe = `${appUrl}/unsubscribe?token=${encodeURIComponent(pref.unsubscribeToken)}`;
   const summary =
     [...groups].map(([name, items]) => `${items.length} ${name}`).join(', ') || 'No new matches';
-  const html = `<html><body style="font-family:Arial,sans-serif;color:#171717;max-width:620px;margin:auto;padding:32px"><h1>Your JevInbox digest</h1><p>${escapeHtml(summary)}</p>${[...groups].map(([name, items]) => `<h2>${escapeHtml(name)}</h2><ul>${items.map((item) => `<li><a href="${escapeHtml(appUrl)}/?workspace=${item.workspace}&amp;email=${encodeURIComponent(item.emailId)}">${escapeHtml(item.subject)}</a> — ${escapeHtml(item.sender)}</li>`).join('')}</ul>`).join('')}<p><a href="${escapeHtml(unsubscribe)}">Unsubscribe from daily digests</a></p></body></html>`;
+  const html = `<html><body style="font-family:Arial,sans-serif;color:#171717;max-width:620px;margin:auto;padding:32px"><h1>Your evailbox digest</h1><p>${escapeHtml(summary)}</p>${[...groups].map(([name, items]) => `<h2>${escapeHtml(name)}</h2><ul>${items.map((item) => `<li><a href="${escapeHtml(appUrl)}/inbox?workspace=${item.workspace}&amp;email=${encodeURIComponent(item.emailId)}">${escapeHtml(item.subject)}</a> — ${escapeHtml(item.sender)}</li>`).join('')}</ul>`).join('')}<p><a href="${escapeHtml(unsubscribe)}">Unsubscribe from daily digests</a></p></body></html>`;
   return {
     from: process.env.DIGEST_FROM!,
     to: [pref.user.email],
-    subject: `JevInbox · ${summary.slice(0, 120)}`,
+    subject: `evailbox · ${summary.slice(0, 120)}`,
     html,
     headers: { 'List-Unsubscribe': `<${unsubscribe}>` },
   };

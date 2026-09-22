@@ -1,7 +1,12 @@
 import type { Workspace, Tag, Email, Filters } from '@/types';
 import type { TagInput } from './validation';
 import type { WorkspaceId } from './workspace-selection';
-const storageKey = 'jevinbox-demo-v1';
+import { migrateStoredValue } from './browser-storage';
+const storageKey = 'evailbox-demo-v1';
+// Read old keys once so the rename preserves existing demo changes.
+const legacyStorageKey = 'jevinbox-demo-v1';
+const legacyWorkspaceKey = (workspace: WorkspaceId) =>
+  workspace === 'PERSONAL' ? legacyStorageKey : legacyStorageKey + '-work';
 const workspaceKey = (workspace: WorkspaceId) =>
   workspace === 'PERSONAL' ? storageKey : storageKey + '-work';
 const tags: Tag[] = [
@@ -160,7 +165,7 @@ export function seedDemo(): Workspace {
       sender,
       senderName: name,
       snippet,
-      body: `${snippet}\n\nThis is a sample email in the JevInbox demo workspace. Connect your own accounts in a configured live workspace to see real messages here.\n\nBest,\n${name}`,
+      body: `${snippet}\n\nThis is a sample email in the evailbox demo workspace. Connect your own accounts in a configured live workspace to see real messages here.\n\nBest,\n${name}`,
       receivedAt: new Date(now - hours * 3600000).toISOString(),
       isRead,
       handled: false,
@@ -176,7 +181,7 @@ export function seedDemo(): Workspace {
               tagVersion: 1,
               matched: true,
               confidence,
-              reasoning: `Illustrative demo result for the “${tags.find((t) => t.id === tagId)!.name}” rule. This score was not produced by a live Jev call.`,
+              reasoning: `Illustrative demo result for the “${tags.find((t) => t.id === tagId)!.name}” rule. This score was not produced by a live AI evaluation.`,
               decision: 'match',
               tag: tags.find((t) => t.id === tagId)!,
             },
@@ -220,8 +225,43 @@ export function seedDemo(): Workspace {
 export function readDemo(workspace: WorkspaceId = 'PERSONAL'): Workspace {
   const key = workspaceKey(workspace);
   try {
-    const saved = localStorage.getItem(key);
-    if (saved) return JSON.parse(saved) as Workspace;
+    const saved = migrateStoredValue(key, legacyWorkspaceKey(workspace));
+    if (saved) {
+      const data = JSON.parse(saved) as Workspace;
+      // Only generated sample copy changes; user-authored rules remain verbatim.
+      let changed = false;
+      for (const email of data.emails) {
+        const body = email.body?.replace(
+          'This is a sample email in the JevInbox demo workspace.',
+          'This is a sample email in the evailbox demo workspace.',
+        );
+        if (body !== undefined && body !== email.body) {
+          email.body = body;
+          changed = true;
+        }
+        for (const classification of email.classifications) {
+          const reasoning = classification.reasoning
+            .replace(
+              'This score was not produced by a live Jev call.',
+              'This score was not produced by a live AI evaluation.',
+            )
+            .replace(
+              'Demo keyword/sender rule result. Live Jev was not called.',
+              'Demo keyword/sender rule result. Live AI was not called.',
+            );
+          if (reasoning !== classification.reasoning) {
+            classification.reasoning = reasoning;
+            changed = true;
+          }
+        }
+      }
+      if (changed) {
+        try {
+          localStorage.setItem(key, JSON.stringify(data));
+        } catch {}
+      }
+      return data;
+    }
   } catch {}
   const fresh = seedDemo();
   if (workspace === 'WORK') {
@@ -341,13 +381,15 @@ export function mutateDemo(
             matched: match,
             confidence: match ? 100 : 0,
             decision: match ? 'match' : 'no_match',
-            reasoning: 'Demo keyword/sender rule result. Live Jev was not called.',
+            reasoning: 'Demo keyword/sender rule result. Live AI was not called.',
           });
       }
     }
   } else if (path === '/api/user') {
     localStorage.removeItem(storageKey);
     localStorage.removeItem(workspaceKey('WORK'));
+    localStorage.removeItem(legacyStorageKey);
+    localStorage.removeItem(legacyWorkspaceKey('WORK'));
     return;
   }
   localStorage.setItem(workspaceKey(workspace), JSON.stringify(w));

@@ -27,7 +27,7 @@ function decision(probability: number, threshold: number): Classification {
     matched: outcome === 'match',
     confidence,
     decision: outcome,
-    reasoning: `Jev evaluation: P(match)=${confidence.toFixed(1)}%; match ≥${threshold}%; no match ≤${100 - threshold}%; decision=${outcome}. This is a probability and policy trace, not generated reasoning.`,
+    reasoning: `AI evaluation: P(match)=${confidence.toFixed(1)}%; match ≥${threshold}%; no match ≤${100 - threshold}%; decision=${outcome}. This is a probability and policy trace, not generated reasoning.`,
   };
 }
 
