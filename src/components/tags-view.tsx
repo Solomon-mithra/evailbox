@@ -2,13 +2,13 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Plus, MoreHorizontal, ArrowUpRight, Tags, Sparkles, Pencil, Trash2 } from 'lucide-react';
-import { DropdownMenu } from 'radix-ui';
+import { Plus, Sparkles, Pencil, Trash2 } from 'lucide-react';
 import { useWorkspace, useAction } from '@/hooks/useFetch';
 import { Button } from './ui/button';
 import { TagBadge } from './ui/badge';
 import { Skeleton } from './ui/loader';
 import { TagForm } from './tag-form';
+import { TagCard } from './tag-card';
 import { ConfirmDialog } from './confirm-dialog';
 import { EmailDetail } from './email-detail';
 import { EmailRow } from './inbox';
@@ -33,8 +33,8 @@ export function TagsView({ tagId }: { tagId?: string }) {
       });
       toast[r.errors ? 'warning' : 'success'](
         r.demo
-          ? 'Demo rules evaluated. No live Jev call was made.'
-          : `Evaluated ${r.classified} decisions${r.remaining ? ' · run again to continue' : ''}${r.errors ? ' · some failed; retry' : ''}`,
+          ? 'Demo emails checked against your tags.'
+          : `Checked ${r.classified} tag matches${r.remaining ? ' · run again to continue' : ''}${r.errors ? ' · some checks failed; try again' : ''}`,
       );
     } catch (e) {
       toast.error((e as Error).message);
@@ -107,7 +107,7 @@ export function TagsView({ tagId }: { tagId?: string }) {
                 <span>{query.data?.total ?? 0} matching emails</span>
                 <Button variant="outline" size="sm" onClick={run} disabled={mutation.isPending}>
                   <Sparkles size={15} />
-                  {mutation.isPending ? 'Classifying…' : 'Run classifier'}
+                  {mutation.isPending ? 'Checking emails…' : 'Check for matches'}
                 </Button>
               </div>
             </div>
@@ -117,7 +117,7 @@ export function TagsView({ tagId }: { tagId?: string }) {
               ) : (
                 <EmptyState
                   title="No matches yet"
-                  message="Run the classifier to check existing emails against this tag."
+                  message="Check for matches to find existing emails that fit this rule."
                 />
               )}
             </div>
@@ -146,73 +146,38 @@ export function TagsView({ tagId }: { tagId?: string }) {
         )
       ) : (
         <>
-          <div className="section-heading">
-            <h2>
-              Your tags <span className="count">{query.data?.tags.length ?? 0}</span>
-            </h2>
+          <div className="section-heading tags-heading">
+            <div>
+              <h2>
+                Your tags <span className="count">{query.data?.tags.length ?? 0}</span>
+              </h2>
+              <p>Open a tag to see its emails, or edit what it looks for.</p>
+            </div>
             <Button
-              variant="ghost"
+              variant="outline"
               size="sm"
               onClick={run}
               disabled={mutation.isPending || !query.data?.tags.length}
             >
               <Sparkles size={15} />
-              {mutation.isPending ? 'Classifying…' : 'Run classifier'}
+              {mutation.isPending ? 'Checking emails…' : 'Check for matches'}
             </Button>
           </div>
-          <div className="tag-card-grid">
+          <ul className="tag-card-grid" aria-label="Your tags">
             {query.data?.tags.map((t) => (
-              <article className="tag-card" key={t.id}>
-                <div className="tag-card-top">
-                  <span className={`tag-card-icon tag-${t.priority.toLowerCase()}`}>
-                    <Tags size={20} />
-                  </span>
-                  <DropdownMenu.Root>
-                    <DropdownMenu.Trigger
-                      className="icon-button"
-                      aria-label={`Actions for ${t.name}`}
-                    >
-                      <MoreHorizontal size={20} />
-                    </DropdownMenu.Trigger>
-                    <DropdownMenu.Portal>
-                      <DropdownMenu.Content className="dropdown-content" align="end">
-                        <DropdownMenu.Item
-                          onSelect={() => {
-                            setEditing(t);
-                            setFormOpen(true);
-                          }}
-                        >
-                          Edit tag
-                        </DropdownMenu.Item>
-                        <DropdownMenu.Item onSelect={() => setDeleting(t)}>
-                          Delete tag
-                        </DropdownMenu.Item>
-                      </DropdownMenu.Content>
-                    </DropdownMenu.Portal>
-                  </DropdownMenu.Root>
-                </div>
-                <Link className="tag-card-title" href={`/tags/${t.id}`}>
-                  <h2>{t.name}</h2>
-                  <ArrowUpRight size={17} />
-                </Link>
-                <p>{t.description || 'A custom rule for your inbox.'}</p>
-                <div className="keyword-list">
-                  {t.keywords.slice(0, 4).map((k) => (
-                    <span key={k}>{k}</span>
-                  ))}
-                </div>
-                <div className="tag-card-footer">
-                  <span className={`priority-text priority-${t.priority.toLowerCase()}`}>
-                    {t.priority.toLowerCase()} priority
-                  </span>
-                  <Link href={`/tags/${t.id}`}>
-                    View emails
-                    <ArrowUpRight size={14} />
-                  </Link>
-                </div>
-              </article>
+              <li key={t.id}>
+                <TagCard
+                  tag={t}
+                  matchCount={query.data?.tagCounts ? (query.data.tagCounts[t.id] ?? 0) : undefined}
+                  onEdit={() => {
+                    setEditing(t);
+                    setFormOpen(true);
+                  }}
+                  onDelete={() => setDeleting(t)}
+                />
+              </li>
             ))}
-          </div>
+          </ul>
           {!query.data?.tags.length && (
             <EmptyState
               title="Your priorities start with a tag"
@@ -225,16 +190,12 @@ export function TagsView({ tagId }: { tagId?: string }) {
               }
             />
           )}
-          <div className="info-note">
-            <Sparkles size={19} />
-            <div>
-              <strong>A little context goes a long way.</strong>
-              <p>
-                Specific criteria help Jev make better decisions. Every match includes a
-                probability, so uncertainty stays visible.
-              </p>
-            </div>
-          </div>
+          {!!query.data?.tags.length && (
+            <p className="tags-hint">
+              <Sparkles size={15} aria-hidden="true" />
+              Changed a rule? Check for matches to apply it to your emails.
+            </p>
+          )}
         </>
       )}
       <TagForm tag={editing} open={formOpen} onOpenChange={setFormOpen} />

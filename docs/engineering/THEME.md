@@ -50,3 +50,13 @@ References: [WCAG text contrast](https://www.w3.org/WAI/WCAG22/Understanding/con
 Production previews: [desktop](theme/desktop.png) and [mobile](theme/mobile.png). Both use synthetic demo mail.
 
 Font source: [Inter variable WOFF2](https://github.com/rsms/inter/blob/master/docs/font-files/InterVariable.woff2). The upstream SIL Open Font License is included in `src/app/fonts/LICENSE.txt`.
+
+## Tags page refinement
+
+Each tag card now leads with its name, priority, and actual matching rule. It has one full-card link to its emails, workspace-wide match counts, and a separate visible **Edit rule** button. Deletion stays in the secondary menu, with confirmation and focus returning to the menu button on cancellation. No-match cards say **No matches yet**; unavailable counts are not represented as zero.
+
+The page uses **Check for matches** consistently, and a short contextual hint replaces the large generic advice panel. Keyword previews are bounded, sender counts are visible, and cards collapse to one column when the available content width is too narrow.
+
+Verified full-card navigation, independent edit/menu controls, deletion cancellation and focus restoration, zero matches, long names/rules/keywords, sender counts, and the check-for-matches action. A temporary demo tag used for these checks was removed. Desktop and mobile axe checks reported no violations in the tested states; 320–1440px layouts, 200% text size, and text-spacing overrides did not introduce card or document overflow. All 82 tests, lint, typecheck, and the production build passed.
+
+Updated previews: [tags on desktop](theme/tags-desktop.png) and [tags on mobile](theme/tags-mobile.png).

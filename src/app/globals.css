@@ -1040,54 +1040,204 @@ h1 {
   font-size: 0.875rem;
   color: var(--muted);
 }
+/* Tag cards have one stretched link, with independent controls above it. */
+.tags-heading {
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.tags-heading p {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+.tags-heading > .button {
+  flex-shrink: 0;
+}
 .tag-card-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.tag-card-grid > li {
+  display: flex;
+  min-width: 0;
 }
 .tag-card {
-  border: 1px solid var(--line);
+  position: relative;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
-  transition: border-color 0.15s;
-  border-radius: 14px;
-  padding: 24px;
-  min-height: 235px;
+  width: 100%;
+  min-width: 0;
+  padding: 22px 24px 0;
+  border: 1px solid var(--line);
+  border-radius: 16px;
   background: #fff;
-  border-color: var(--line);
+  box-shadow: 0 2px 4px #05343803;
+  transition:
+    border-color 150ms ease-out,
+    box-shadow 150ms ease-out;
 }
-.tag-card-top {
+.tag-card-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
+  gap: 12px;
 }
-.tag-card-icon {
-  display: grid;
-  place-items: center;
+.tag-card-heading {
+  min-width: 0;
+}
+.tag-card-heading h3 {
+  font-size: 1.25rem;
+  line-height: 1.35;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  color: var(--forest);
+  overflow-wrap: anywhere;
+}
+.tag-card-link::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: 16px;
+}
+.tag-card-link:focus-visible {
+  outline: none;
+}
+.tag-card-link:focus-visible::after {
+  outline: 2px solid var(--forest);
+  outline-offset: 3px;
+}
+.tag-card-priority {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  margin-top: 9px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  font-weight: 500;
+  text-transform: capitalize;
+}
+.tag-card-control {
+  position: relative;
+  z-index: 1;
+}
+.tag-card-more {
   width: 36px;
   height: 36px;
-  border-radius: 10px;
+  margin: -4px -8px 0 0;
 }
-.tag-card-title {
+.tag-card-rule {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  margin-top: 18px;
+  color: var(--muted);
+  font-size: 0.875rem;
+  line-height: 1.65;
+}
+.tag-card-signals {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.tag-card-keywords {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+.tag-card-keyword {
+  max-width: min(100%, 10rem);
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: var(--surface);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tag-card-extra,
+.tag-card-senders {
+  white-space: nowrap;
+}
+.tag-card-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 19px;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: auto;
+  padding: 16px 0;
 }
-.tag-card-title h2 {
-  font-size: 1.125rem;
-  font-weight: 600;
-  letter-spacing: -0.02em;
+.tag-card-footer::before {
+  content: '';
+  height: 1px;
+  background: var(--line);
+  width: 100%;
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+.tag-card-matches {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  font-size: 0.8125rem;
   color: var(--forest);
 }
-.tag-card-title > svg {
+.tag-card-matches strong {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.tag-card-arrow {
   color: var(--muted);
 }
-.tag-card > p {
-  margin-top: 9px;
+.tag-card-edit {
+  min-height: 44px;
+  flex-shrink: 0;
+  padding: 8px 10px;
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--forest);
+}
+.tag-card-menu [role='menuitem'] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  color: var(--danger);
+}
+.dropdown-content.tag-card-menu [role='menuitem'][data-highlighted] {
+  color: var(--danger);
+  background: #fff0eb;
+  box-shadow: inset 0 0 0 2px var(--danger);
+}
+.tags-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 24px;
+  font-size: 0.8125rem;
   line-height: 1.6;
-  font-size: 0.875rem;
   color: var(--muted);
+}
+.tags-hint svg {
+  margin-top: 2px;
 }
 .keyword-list {
   display: flex;
@@ -1102,32 +1252,6 @@ h1 {
   font-size: 0.75rem;
   color: var(--muted);
   background: var(--surface);
-}
-.tag-card-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: auto;
-  font-size: 0.75rem;
-  padding-top: 22px;
-}
-.tag-card-footer a {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  color: var(--muted);
-}
-.priority-text {
-  text-transform: capitalize;
-}
-.priority-high {
-  color: var(--olive);
-}
-.priority-medium {
-  color: var(--forest);
-}
-.priority-low {
-  color: var(--teal);
 }
 .info-note {
   display: flex;
@@ -1598,6 +1722,10 @@ h1 {
   }
   .tag-card:hover {
     border-color: var(--control-border);
+    box-shadow: 0 4px 16px #0534380a;
+  }
+  .tag-card:hover .tag-card-arrow {
+    color: var(--forest);
   }
   .connect-card:hover {
     background: var(--surface);
@@ -1794,6 +1922,11 @@ input[type='search']::-webkit-search-cancel-button {
     display: none;
   }
 }
+@media (min-width: 801px) and (max-width: 1050px) {
+  .tag-card-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 @media (max-width: 800px) {
   .desktop-sidebar {
     display: none;
@@ -1977,8 +2110,17 @@ input[type='search']::-webkit-search-cancel-button {
   .tag-card-grid {
     grid-template-columns: 1fr;
   }
+  .tags-heading {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 12px;
+  }
   .tag-card {
-    padding: 22px;
+    padding: 20px 20px 0;
+  }
+  .tag-card-more {
+    width: 44px;
+    height: 44px;
   }
   .info-note {
     padding: 18px;

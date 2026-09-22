@@ -72,7 +72,7 @@ function Form({ tag, close }: { tag?: Tag; close: () => void }) {
         method: tag ? 'PATCH' : 'POST',
         body: parsed.data,
       });
-      toast.success(tag ? 'Tag updated. Run the classifier to refresh matches.' : 'Tag created');
+      toast.success(tag ? 'Tag updated. Check for matches to refresh its emails.' : 'Tag created');
       close();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save tag.');
