@@ -1,8 +1,21 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+const publicAssets = new Set([
+  '/brands/gmail.svg',
+  '/brands/outlook.svg',
+  '/robots.txt',
+  '/sitemap.xml',
+  '/llms.txt',
+  '/index.md',
+  '/manifest.webmanifest',
+  '/og/evailbox.png',
+  '/apple-touch-icon.png',
+  '/icon-192.png',
+  '/icon-512.png',
+]);
 export async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
-  if (path === '/brands/gmail.svg' || path === '/brands/outlook.svg') {
+  if (publicAssets.has(path)) {
     return NextResponse.next();
   }
   if (path === '/') {

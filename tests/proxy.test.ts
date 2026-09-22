@@ -72,11 +72,29 @@ describe('public homepage and inbox routing', () => {
   });
 });
 
-it.each(['/brands/gmail.svg', '/brands/outlook.svg'])(
-  'serves public landing logo %s without authentication',
+it.each([
+  '/brands/gmail.svg',
+  '/brands/outlook.svg',
+  '/robots.txt',
+  '/sitemap.xml',
+  '/llms.txt',
+  '/index.md',
+  '/manifest.webmanifest',
+  '/og/evailbox.png',
+  '/apple-touch-icon.png',
+  '/icon-192.png',
+  '/icon-512.png',
+])('serves public discovery asset %s without authentication', async (path) => {
+  const response = await proxy(request(path));
+  expect(response.headers.get('x-middleware-next')).toBe('1');
+  expect(auth.createClient).not.toHaveBeenCalled();
+});
+
+it.each(['/og/private', '/robots.txt/private', '/index.md/private', '/llms.txt/private'])(
+  'does not turn public asset paths into an auth bypass for %s',
   async (path) => {
     const response = await proxy(request(path));
-    expect(response.headers.get('x-middleware-next')).toBe('1');
-    expect(auth.createClient).not.toHaveBeenCalled();
+    expect(response.headers.get('location')).toBe('https://app.example/signin');
+    expect(auth.getUser).toHaveBeenCalledOnce();
   },
 );

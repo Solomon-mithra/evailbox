@@ -63,6 +63,7 @@ See [current validation status](docs/phases/STATUS.md). Real OAuth consent, prod
 - [Personal/Work spaces and browser-storage migration](docs/engineering/WORKSPACES.md)
 - [Theme, landing page and browser review](docs/engineering/THEME.md)
 - [Provider SVG sources and usage](docs/engineering/PROVIDER_LOGOS.md)
+- [Metadata, crawler files and sharing previews](docs/engineering/SHARING.md)
 - [Deployment, troubleshooting and rollback](docs/engineering/RUNBOOK.md)
 - [Implementation plan](docs/phases/IMPLEMENTATION_PLAN.md)
 - [Phase 0](docs/phases/PHASE_0.md), [Phase 1](docs/phases/PHASE_1.md), [Phase 2](docs/phases/PHASE_2.md), [Phase 3](docs/phases/PHASE_3.md), [Phase 4](docs/phases/PHASE_4.md), [Phase 5](docs/phases/PHASE_5.md), [Phase 6](docs/phases/PHASE_6.md)

@@ -16,6 +16,7 @@ This is an executable operator guide, not a record of actions already performed.
 - Verify root email/workspace links redirect to `/inbox` with query parameters intact; check notification/digest links open the intended workspace and message.
 - Check cool off-white backgrounds across app pages, retained heading-box gradients and the separately styled landing page. Review tag-card navigation, **Edit rule**, deletion cancellation/focus and zero/unknown counts at desktop and mobile widths.
 - Verify legacy demo keys migrate without losing custom rules. Use the application's demo reset when a fresh fictional state is intended; [WORKSPACES.md](WORKSPACES.md) documents both generations of keys.
+- Before publishing, set `NEXT_PUBLIC_APP_URL` to the final public origin. Verify the canonical URL, sharing image, robots/sitemap, manifest and public `llms.txt` using [SHARING.md](SHARING.md). A GitHub rename does not rename the hosted domain.
 - Record the revision, browser, viewport, mode and actual results. [STATUS.md](../phases/STATUS.md) distinguishes completed local checks from final visual and external acceptance still required.
 
 ## Live environment and database

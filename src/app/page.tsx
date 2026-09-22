@@ -16,20 +16,14 @@ import {
 import { BrandMark } from '@/components/brand-mark';
 import { LandingExample } from '@/components/landing-example';
 import { ProviderLogo } from '@/components/provider-logo';
+import { isPublicIndexingEnabled, site, siteUrl } from '@/lib/site';
 import styles from './page.module.css';
 
 export const metadata: Metadata = {
-  title: 'evailbox — Important emails. Out of the noise.',
-  description:
-    'AI email organization for your work and life. Connect Gmail and Outlook, describe your priorities, and find the messages that matter with evailbox.',
-  robots: { index: true, follow: true },
-  openGraph: {
-    title: 'evailbox — Important emails. Out of the noise.',
-    description:
-      'Your accounts, your priorities, one clearer view. AI email organization for your work and life.',
-    type: 'website',
-    siteName: 'evailbox',
-  },
+  title: site.title,
+  description: site.description,
+  alternates: { canonical: '/' },
+  robots: { index: isPublicIndexingEnabled(), follow: isPublicIndexingEnabled() },
 };
 
 const faqs = [
@@ -56,11 +50,29 @@ const faqs = [
 ];
 
 export default function HomePage() {
-  const demo = process.env.APP_MODE === 'demo';
   const entry = '/inbox';
   const cta = 'Open inbox';
   return (
     <div className={styles.page}>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            '@context': 'https://schema.org',
+            '@type': 'WebSite',
+            name: site.name,
+            url: siteUrl().href,
+            description: site.description,
+            inLanguage: 'en',
+            publisher: {
+              '@type': 'Organization',
+              name: site.name,
+              url: siteUrl().href,
+              logo: siteUrl('/icon-512.png').href,
+            },
+          }).replace(/</g, '\\u003c'),
+        }}
+      />
       <div className={styles.heroBackground}>
         <header className={styles.header}>
           <Link href="/" className={styles.brand} aria-label="evailbox home">
@@ -102,9 +114,7 @@ export default function HomePage() {
               </div>
               <p className={styles.ctaNote}>
                 <Check size={14} aria-hidden="true" />
-                {demo
-                  ? 'No account needed. Explore with sample emails.'
-                  : 'Your email apps stay. The sorting gets simpler.'}
+                Your email apps stay. The sorting gets simpler.
               </p>
               <div className={styles.compatibility}>
                 <span>Works with</span>
@@ -263,7 +273,7 @@ export default function HomePage() {
               </Link>
               <span>
                 <CircleCheck size={14} aria-hidden="true" />
-                {demo ? 'Try it with sample emails.' : 'Start with your Gmail or Outlook.'}
+                Start with your Gmail or Outlook.
               </span>
             </div>
           </section>

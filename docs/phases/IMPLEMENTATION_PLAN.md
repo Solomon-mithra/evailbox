@@ -30,6 +30,7 @@
 - [x] Refine tag cards with full-card email links, workspace-wide counts, visible editing and confirmed deletion.
 - [x] Launch the public evailbox landing page, move the dashboard to `/inbox`, preserve legacy links and update product identity.
 - [x] Apply the forest/lime theme, local Inter, cool off-white app backgrounds and shared Gmail/Outlook SVGs; retain box gradients and the distinct landing background.
+- [x] Add complete sharing metadata, a branded PNG preview, app icons/manifest, public crawler files and account-aware landing copy. Keep private routes protected and out of the sitemap.
       Acceptance: all navigation and actions work in demo; live mode requires authentication; compound filters operate together.
 
 ## 4. Notifications and deployment

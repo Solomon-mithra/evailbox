@@ -11,13 +11,15 @@ Updated: 2026-09-21. Product: **evailbox**. This is a delivered implementation w
 - Tag cards prioritize the rule and workspace-wide match count, with full-card email navigation, a separate **Edit rule** action, confirmed deletion and clearer empty states.
 - Shared, locally served Gmail and Outlook SVG logos on the landing page, Accounts and embedded account controls in Settings. See [asset sources and usage](../engineering/PROVIDER_LOGOS.md).
 
+- Professional sharing setup: canonical/Open Graph/Twitter metadata, a branded 1200 × 630 PNG, app icons/manifest, robots/sitemap, public product Markdown and `llms.txt`. Removed the landing page’s account-free claim. See [sharing implementation and checks](../engineering/SHARING.md).
+
 These are user-requested refinements within Phases 2, 4, 5 and 6, not a new phase.
 
 ## Verified locally
 
-Fresh source baseline: `5350ce0` on 2026-09-21, before this documentation-only update.
+Latest local verification: the metadata/sharing update on 2026-09-21. Earlier theme and landing milestones retain their historical evidence in their respective documents.
 
-- `npm test`: **102 tests across 13 files pass**.
+- `npm test`: **121 tests across 14 files pass**.
 - `npm run lint`: passes without warnings.
 - `APP_MODE=demo npm run build`: passes, including Prisma generation, service-worker bundling and Next.js compilation/TypeScript checks.
 - PGlite tests execute both migrations, including legacy-data preservation, RLS on all eight public tables, tenant isolation, blocked credential reads, workspace-consistent foreign keys and deletion cascades.
@@ -51,10 +53,10 @@ Private repository: [Solomon-mithra/evailbox](https://github.com/Solomon-mithra/
 The following are the last recorded deployment observations, not a new deployment verification:
 
 - The initial CLI deployment completed in **demo mode**. Health/public-page HTTP checks passed; live APIs returned `503 DEMO_MODE`, unauthenticated cron returned `401`, and authenticated demo cron skipped work.
-- GitHub CI and deployed health monitoring passed for `b67fac1`. A completed 24-hour monitoring acceptance record is still absent; CI for the latest local refinements has not been verified.
+- GitHub CI and deployed health monitoring passed for `b67fac1`. A completed 24-hour monitoring acceptance record is still absent; CI for the current metadata/sharing revision has not yet been verified.
 - The connected Vercel Hobby account rejected sub-daily cron. The root `vercel.json` disables demo jobs; `vercel.live.json` preserves live schedules. No plan was upgraded.
 - Vercel Git linking required a GitHub Login Connection. A subsequent deployment was blocked because the commit author lacked project deployment permission. An authorized operator must resolve those identity/project permissions; automatic Git deployment remains unverified.
 
-The recent UI refinements are included in this `main` release, and all 102 tests were rechecked before GitHub publication. GitHub publication is separate from deployment: the existing hosted demo has not been updated with these changes. Neither migration has been applied to a live Supabase project as part of this work.
+The recent UI refinements are included in this `main` release, and all 121 tests were rechecked for this metadata/sharing update. GitHub publication is separate from deployment: the existing hosted demo has not been updated with these changes. Neither migration has been applied to a live Supabase project as part of this work.
 
 No real email has been read, sent, modified or deleted during implementation, and no live Jev request has been made. Required live service credentials have not been supplied. Locally generated secrets remain in ignored environment files. Live launch depends on the [runbook](../engineering/RUNBOOK.md) and [Phase 6 acceptance matrix](PHASE_6.md); implementation scope remains Phases 0–6.

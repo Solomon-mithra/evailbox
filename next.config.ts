@@ -5,6 +5,16 @@ const config: NextConfig = {
   async headers() {
     return [
       {
+        source: '/',
+        headers: [
+          {
+            key: 'Link',
+            value:
+              '</index.md>; rel="alternate"; type="text/markdown", </llms.txt>; rel="describedby"',
+          },
+        ],
+      },
+      {
         source: '/:path*',
         headers: [
           { key: 'X-Content-Type-Options', value: 'nosniff' },

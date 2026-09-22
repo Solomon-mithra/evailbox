@@ -80,6 +80,7 @@ Acceptance criteria:
 - Untrusted mutation Origin is rejected and cross-tenant resource IDs yield safe not-found behavior.
 - The homepage, exact provider SVG asset paths, callback and unsubscribe routes remain public without opening unrelated private routes. Homepage metadata is indexable; app metadata remains noindex.
 - Legacy root email/workspace links redirect to `/inbox` with parameters preserved.
+- Public discovery files and sharing assets load without authentication. Only the homepage appears in the sitemap; canonical/social URLs use the configured public origin. See [metadata and sharing](../engineering/SHARING.md).
 - Browser session verification and real two-user tests remain pending until executed externally.
 
 ## 2.6 TypeScript Types and API Helpers

@@ -14,6 +14,7 @@
     "db:migrate": "prisma migrate deploy",
     "prepare": "husky",
     "build:sw": "esbuild src/service-worker/sw.ts --bundle --outfile=public/sw.js --target=es2022",
+    "generate:brand-assets": "tsx scripts/generate-brand-assets.tsx",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test:db": "vitest run tests/database.test.ts",
