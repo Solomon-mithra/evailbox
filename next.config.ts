@@ -15,7 +15,9 @@ const config: NextConfig = {
         ],
       },
       {
-        source: '/:path*',
+        // Email documents supply their own stricter sandbox policy in the route.
+        // Global headers take precedence over route response headers in Next.js.
+        source: '/:path((?!api/emails/[^/]+/content/?$).*)',
         headers: [
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },

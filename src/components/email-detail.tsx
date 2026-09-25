@@ -1,4 +1,5 @@
 'use client';
+import { useState } from 'react';
 import { ExternalLink, Check, Undo2, Sparkles, ChevronDown } from 'lucide-react';
 import { Dialog } from './ui/dialog';
 import { Button } from './ui/button';
@@ -10,7 +11,47 @@ import { useQuery } from '@tanstack/react-query';
 import { useDemo } from './providers';
 import { api } from '@/lib/api';
 import { useWorkspaceSelection } from './workspace-selection';
-import { workspacePath } from '@/lib/workspace-selection';
+import { workspacePath, type WorkspaceId } from '@/lib/workspace-selection';
+
+function MessageBody({ email, workspace }: { email: Email; workspace: WorkspaceId }) {
+  const [images, setImages] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  return (
+    <section className="email-message" aria-label="Message content">
+      <div className="email-reader-toolbar">
+        <span>
+          {!loaded
+            ? 'Loading message…'
+            : images
+              ? 'External images are visible.'
+              : 'External images are hidden for privacy.'}
+        </span>
+        <button
+          type="button"
+          className="email-image-toggle"
+          onClick={() => {
+            setLoaded(false);
+            setImages(!images);
+          }}
+        >
+          {images ? 'Hide images' : 'Load images'}
+        </button>
+      </div>
+      <iframe
+        key={String(images)}
+        className="email-message-frame"
+        title="Email message"
+        src={workspacePath(
+          `/api/emails/${encodeURIComponent(email.id)}/content?images=${images ? '1' : '0'}`,
+          workspace,
+        )}
+        sandbox="allow-popups allow-popups-to-escape-sandbox"
+        referrerPolicy="no-referrer"
+        onLoad={() => setLoaded(true)}
+      />
+    </section>
+  );
+}
 export function EmailDetail({
   email: selected,
   onClose,
@@ -34,6 +75,7 @@ export function EmailDetail({
       title={email?.subject ?? 'Email'}
       description={email ? `From ${email.sender}` : undefined}
       wide
+      className="email-reader"
     >
       {email && (
         <>
@@ -41,14 +83,11 @@ export function EmailDetail({
             <span>{email.senderName}</span>
             <time dateTime={email.receivedAt}>{new Date(email.receivedAt).toLocaleString()}</time>
           </div>
-          <div className="email-body">
-            {detail.isFetching && !demo ? 'Loading message…' : email.body || email.snippet}
-            {detail.isError && (
-              <p className="field-error">
-                The full message couldn’t load. Close and reopen to retry.
-              </p>
-            )}
-          </div>
+          {demo ? (
+            <div className="email-body">{email.body || email.snippet}</div>
+          ) : (
+            <MessageBody key={`${workspace}:${email.id}`} email={email} workspace={workspace} />
+          )}
           <details className="decision-trace" key={email.id}>
             <summary>
               <Sparkles size={16} />

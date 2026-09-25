@@ -113,7 +113,28 @@ it('evaluates three tag questions in one native Gateway request and maps results
     expect(payload.questions.q0.instructions.tag.prompt).toBe(tags[0].prompt);
     expect(payload.questions.q0.type).toBe('boolean');
     expect(payload).not.toHaveProperty('messages');
-    expect(evaluate.mock.calls[0][0].maxRetries).toBe(1);
+    expect(evaluate.mock.calls[0][0].maxRetries).toBe(0);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+it('returns a Gateway 429 immediately without retrying the HTTP request', async () => {
+  const actual = await vi.importActual<typeof import('ai')>('ai');
+  evaluate.mockImplementation(actual.experimental_evaluate);
+  const fetchFixture = vi.fn(
+    async () =>
+      new Response(
+        JSON.stringify({
+          error: { type: 'rate_limit_exceeded', message: 'fixture rate limit' },
+          generationId: 'gen_fixture',
+        }),
+        { status: 429, headers: { 'content-type': 'application/json', 'retry-after': '0' } },
+      ),
+  );
+  vi.stubGlobal('fetch', fetchFixture);
+  try {
+    await expect(classifyEmailAgainstTag(email, tag)).rejects.toMatchObject({ statusCode: 429 });
+    expect(fetchFixture).toHaveBeenCalledTimes(1);
   } finally {
     vi.unstubAllGlobals();
   }

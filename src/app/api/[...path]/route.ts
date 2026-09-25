@@ -18,8 +18,10 @@ import { sendDigests } from '@/lib/digest';
 import { notifyUser } from '@/lib/notifications';
 import { constantTimeEqual } from '@/lib/crypto';
 import { isDemo } from '@/lib/env';
+import { requireDigestConfiguration } from '@/lib/integrations';
 import { workspaceIds } from '@/lib/workspace-selection';
 import { isPushEndpoint } from '@/lib/notification-utils';
+import { emailContentResponse } from '@/lib/email-content';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 async function dispatch(request: Request) {
@@ -87,6 +89,13 @@ async function dispatch(request: Request) {
     return ok({ signedOut: true });
   }
   const workspace = z.enum(workspaceIds).parse(url.searchParams.get('workspace') ?? 'PERSONAL');
+  if (/^emails\/[^/]+\/content$/.test(path) && method === 'GET')
+    return emailContentResponse(
+      user.id,
+      workspace,
+      idSchema.parse(path.split('/')[1]),
+      url.searchParams.get('images') === '1',
+    );
   if (path === 'workspace' && method === 'GET')
     return ok(await getWorkspace(user, url.searchParams));
   if (path === 'tags' && method === 'GET')
@@ -111,8 +120,6 @@ async function dispatch(request: Request) {
           data: {
             workRequested: true,
             workRevision: { increment: 1 },
-            workNotBefore: new Date(),
-            workFailures: 0,
           },
         });
         return created;
@@ -145,8 +152,6 @@ async function dispatch(request: Request) {
             data: {
               workRequested: true,
               workRevision: { increment: 1 },
-              workNotBefore: new Date(),
-              workFailures: 0,
             },
           });
           return updated;
@@ -255,6 +260,7 @@ async function dispatch(request: Request) {
     );
   if (path === 'settings' && method === 'PATCH') {
     const data = preferencesSchema.parse(await jsonBody(request));
+    if (data.dailyDigest === true) requireDigestConfiguration();
     return ok(
       await db.notificationPref.upsert({
         where: { userId: user.id },

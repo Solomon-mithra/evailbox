@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { db } from './db';
 import { workspaceNames, type WorkspaceId } from './workspace-selection';
 import { digestWindow, escapeHtml } from './notification-utils';
+import { requireDigestConfiguration } from './integrations';
 
 const payloadSchema = z.object({
   from: z.string(),
@@ -81,6 +82,7 @@ async function buildPayload(
 }
 
 export async function sendDigests(deadline = Date.now() + 45000) {
+  requireDigestConfiguration();
   const preferences = await db.notificationPref.findMany({
     where: { dailyDigest: true },
     include: { user: true },

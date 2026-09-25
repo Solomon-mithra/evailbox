@@ -28,6 +28,18 @@ vi.mock('web-push', () => ({
 }));
 import { sendDigests } from '../src/lib/digest';
 import { notifyUser } from '../src/lib/notifications';
+it.each(['', 'replace-with-resend-key', 'key••••'])(
+  'rejects unconfigured digest delivery before touching jobs (%s)',
+  async (key) => {
+    vi.stubEnv('RESEND_API_KEY', key);
+    await expect(sendDigests()).rejects.toMatchObject({
+      status: 503,
+      code: 'DIGEST_NOT_CONFIGURED',
+    });
+    expect(fixture.db.notificationPref.findMany).not.toHaveBeenCalled();
+    expect(fetchFixture).not.toHaveBeenCalled();
+  },
+);
 const now = new Date('2026-09-21T09:00:00Z');
 const pref = {
   userId: 'u1',

@@ -25,8 +25,6 @@ export async function requestWork(
       data: {
         workRequested: true,
         workRevision: { increment: 1 },
-        workNotBefore: new Date(),
-        workFailures: 0,
       },
     });
   });
@@ -36,7 +34,7 @@ export async function requestDailySync() {
     db.emailAccount.updateMany({ data: { syncRequested: true, syncRevision: { increment: 1 } } }),
     db.user.updateMany({
       where: { accounts: { some: {} } },
-      data: { workRequested: true, workRevision: { increment: 1 }, workNotBefore: new Date() },
+      data: { workRequested: true, workRevision: { increment: 1 } },
     }),
   ]);
 }
@@ -46,15 +44,31 @@ export async function withUserWorkLease<T>(
 ): Promise<T> {
   const leaseId = randomUUID();
   const claim = await db.user.updateMany({
-    where: { id: userId, OR: [{ workLeaseUntil: null }, { workLeaseUntil: { lt: new Date() } }] },
+    where: {
+      id: userId,
+      workNotBefore: { lte: new Date() },
+      OR: [{ workLeaseUntil: null }, { workLeaseUntil: { lt: new Date() } }],
+    },
     data: { workLeaseId: leaseId, workLeaseUntil: new Date(Date.now() + 120000) },
   });
-  if (!claim.count)
+  if (!claim.count) {
+    const user = await db.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { workNotBefore: true },
+    });
+    const seconds = Math.ceil((user.workNotBefore.getTime() - Date.now()) / 1000);
+    if (seconds > 0)
+      throw new ApiError(
+        429,
+        'WORK_COOLDOWN',
+        `Email processing is paused. Progress is saved; try again in ${seconds} seconds.`,
+      );
     throw new ApiError(
       409,
       'WORK_IN_PROGRESS',
       'Your inbox is already processing. Progress is saved; it will continue automatically.',
     );
+  }
   try {
     return await operation();
   } finally {
@@ -77,7 +91,11 @@ export async function processUserWork(userId: string, deadline = Date.now() + 45
           workRequested: result.pending || result.errors > 0,
           workFailures: failures,
           workNotBefore: new Date(
-            Date.now() + (failures ? Math.min(3600000, 60000 * 2 ** Math.min(failures - 1, 6)) : 0),
+            Date.now() +
+              Math.max(
+                (result.retryAfterSeconds ?? 0) * 1000,
+                failures ? Math.min(3600000, 60000 * 2 ** Math.min(failures - 1, 6)) : 0,
+              ),
           ),
         },
       });
@@ -88,8 +106,12 @@ export async function processUserWork(userId: string, deadline = Date.now() + 45
         data: {
           workRequested: true,
           workFailures: { increment: 1 },
-          workNotBefore: new Date(Date.now() + 60000),
         },
+      });
+      const retryAt = new Date(Date.now() + 60000);
+      await db.user.updateMany({
+        where: { id: userId, workNotBefore: { lt: retryAt } },
+        data: { workNotBefore: retryAt },
       });
       throw error;
     }
@@ -111,8 +133,9 @@ export async function processPendingWork(deadline = Date.now() + 45000) {
   for (const user of users) {
     if (Date.now() + 1000 >= deadline) break;
     try {
-      await processUserWork(user.id, deadline);
+      const result = await processUserWork(user.id, deadline);
       processed++;
+      if (result.rateLimited) break;
     } catch {
       errors++;
     }

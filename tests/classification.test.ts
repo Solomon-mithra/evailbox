@@ -1,9 +1,11 @@
-import { beforeEach, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, it, expect, vi } from 'vitest';
 const state = vi.hoisted(() => ({
   saved: new Map<string, { tagId: string; tagVersion: number }>(),
   total: 1000,
   stale: false,
   evaluate: vi.fn(),
+  defer: vi.fn(),
+  workTags: false,
 }));
 const tags = [
   { id: 't1', version: 1 },
@@ -25,15 +27,16 @@ vi.mock('@/lib/db', () => {
   };
   return {
     db: {
+      user: { updateMany: state.defer },
       tag: {
         findMany: async ({ where }: { where: { workspace: string } }) => {
           expect(['PERSONAL', 'WORK']).toContain(where.workspace);
-          return where.workspace === 'PERSONAL' ? tags : [];
+          return where.workspace === 'PERSONAL' || state.workTags ? tags : [];
         },
       },
       email: {
         findMany: async ({ take, where }: { take: number; where: { workspace: string } }) => {
-          expect(where.workspace).toBe('PERSONAL');
+          expect(['PERSONAL', 'WORK']).toContain(where.workspace);
           return Array.from({ length: state.total }, (_, i) => ({
             id: 'e' + i,
             subject: 'Email',
@@ -66,6 +69,9 @@ beforeEach(() => {
   state.saved.clear();
   state.total = 1000;
   state.stale = false;
+  state.workTags = false;
+  state.defer.mockReset().mockResolvedValue({ count: 1 });
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
   state.evaluate
     .mockReset()
     .mockImplementation(async (_email: unknown, missing: { id: string }[]) =>
@@ -77,6 +83,7 @@ beforeEach(() => {
       ),
     );
 });
+afterEach(() => vi.restoreAllMocks());
 it('drains 1000 emails in resumable batches, with one call per email and no repeated completed decisions', async () => {
   for (let i = 0; i < 10; i++) {
     const result = await classifyEmails('user');
@@ -117,4 +124,77 @@ it('does not run Personal rules when only Work is requested', async () => {
     remaining: 0,
   });
   expect(state.evaluate).not.toHaveBeenCalled();
+});
+
+it('stops after a 429, retains completed decisions and defers the unprocessed backlog', async () => {
+  state.total = 30;
+  const normal = state.evaluate.getMockImplementation()!;
+  state.evaluate.mockImplementationOnce(normal).mockRejectedValueOnce({
+    statusCode: 429,
+    generationId: 'gen_fixture',
+    cause: { responseHeaders: { 'retry-after': '120' }, responseBody: 'private email' },
+  });
+  const start = Date.now();
+  const result = await classifyEmails('user', { workspace: 'PERSONAL' });
+  expect(state.evaluate).toHaveBeenCalledTimes(2);
+  expect(state.saved.size).toBe(2);
+  expect(result).toMatchObject({
+    classified: 2,
+    errors: 1,
+    remaining: 29,
+    rateLimited: true,
+    retryAfterSeconds: 120,
+  });
+  const deferred = state.defer.mock.calls[0][0];
+  expect(deferred.where.id).toBe('user');
+  expect(deferred.data.workRequested).toBe(true);
+  expect(deferred.data.workNotBefore.getTime()).toBeGreaterThanOrEqual(start + 120000);
+  expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain('private email');
+  expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).toContain('gen_fixture');
+
+  await classifyEmails('user', { workspace: 'PERSONAL' });
+  expect(state.saved.size).toBe(60);
+  expect(state.evaluate).toHaveBeenCalledTimes(31);
+});
+
+it('does not start another workspace after the shared model is rate limited', async () => {
+  state.total = 3;
+  state.workTags = true;
+  state.evaluate.mockRejectedValueOnce({ lastError: { statusCode: 429 } });
+  const result = await classifyEmails('user');
+  expect(state.evaluate).toHaveBeenCalledTimes(1);
+  expect(result).toMatchObject({
+    errors: 1,
+    remaining: 6,
+    rateLimited: true,
+    retryAfterSeconds: 60,
+  });
+});
+
+it.each([
+  [{ 'retry-after': 'Fri, 25 Sep 2026 09:03:00 GMT' }, 180],
+  [{ 'retry-after-ms': '90500' }, 91],
+  [{ 'retry-after': 'invalid' }, 60],
+  [{ 'retry-after': '-5' }, 60],
+  [{ 'retry-after': 'Infinity' }, 60],
+] as const)('uses a safe retry delay for headers %j', async (headers, expected) => {
+  vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-25T09:00:00Z'));
+  state.total = 3;
+  state.evaluate.mockRejectedValueOnce({
+    lastError: { statusCode: 429, cause: { responseHeaders: headers } },
+  });
+  expect(await classifyEmails('user')).toMatchObject({ retryAfterSeconds: expected });
+  expect(state.evaluate).toHaveBeenCalledTimes(1);
+});
+
+it('does not treat other failures or rate-limit words as a 429', async () => {
+  state.total = 2;
+  state.evaluate.mockRejectedValueOnce(
+    Object.assign(new Error('private body: rate limited'), { statusCode: 401 }),
+  );
+  const result = await classifyEmails('user');
+  expect(result).toMatchObject({ classified: 2, errors: 1, remaining: 1 });
+  expect(result).not.toHaveProperty('rateLimited');
+  expect(state.defer).not.toHaveBeenCalled();
+  expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain('private body');
 });

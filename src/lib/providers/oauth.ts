@@ -2,6 +2,7 @@ import 'server-only';
 import { z } from 'zod';
 import { authHeaders, requestJson, requiredEnv } from './http';
 import type { Provider, TokenSet } from './types';
+import { requireOutlookConfiguration } from '../integrations';
 const scopes = {
   GMAIL: 'https://www.googleapis.com/auth/gmail.readonly',
   OUTLOOK: 'offline_access Mail.Read User.Read',
@@ -14,6 +15,7 @@ function config(provider: Provider) {
       authorization: 'https://accounts.google.com/o/oauth2/v2/auth',
       token: 'https://oauth2.googleapis.com/token',
     };
+  requireOutlookConfiguration();
   const tenant = process.env.MICROSOFT_TENANT_ID || 'common';
   if (!/^[a-zA-Z0-9.-]+$/.test(tenant)) throw new Error('Invalid Microsoft tenant');
   const base = `https://login.microsoftonline.com/${tenant}/oauth2/v2.0`;

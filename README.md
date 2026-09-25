@@ -47,7 +47,7 @@ npm run build
 
 The migrations target Supabase and reference `auth.users`, `auth.uid()`, `anon`, and `authenticated`. Do not apply them to an unrelated production database. Tests execute both migrations, including the Personal/Work upgrade, in isolated PGlite PostgreSQL with Supabase-style auth fixtures; they do not provision or verify a live Supabase project.
 
-Vercel cron configuration requires a plan supporting every-minute workers. Daily sync schedules at 03:00 UTC, the worker resumes pending work every minute, and digest scheduling checks every 15 minutes. The UI’s refresh setting controls query polling, not provider polling.
+The root `vercel.json` currently disables cron. The optional `vercel.live.json` schedules daily sync at 03:00 UTC, backlog work every minute, and digest checks every 15 minutes; it requires a compatible plan and verified deployment. The UI’s refresh setting controls query polling, not provider polling. See the [cost and architecture review](docs/engineering/COST_RISK.md) before enabling paid production use or increasing processing allowances.
 
 ## Verification and readiness
 
@@ -60,6 +60,8 @@ See [current validation status](docs/phases/STATUS.md). Real OAuth consent, prod
 - [Tech stack](docs/engineering/TECH_STACK.md)
 - [Provider contracts](docs/engineering/PROVIDERS.md)
 - [Large inboxes and checkpoints](docs/engineering/LARGE_INBOXES.md)
+- [Cost risk, $3.99 pricing and processing limits](docs/engineering/COST_RISK.md)
+- [Reproducible cost worksheet](docs/engineering/COST_WORKSHEET.md)
 - [Personal/Work spaces and browser-storage migration](docs/engineering/WORKSPACES.md)
 - [Theme, landing page and browser review](docs/engineering/THEME.md)
 - [Provider SVG sources and usage](docs/engineering/PROVIDER_LOGOS.md)

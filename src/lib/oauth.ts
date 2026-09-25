@@ -17,6 +17,11 @@ export async function beginConnection(
 ) {
   const verifier = randomBytes(32).toString('base64url');
   const state = createOAuthState(userId, provider, verifier, Date.now(), workspace);
+  const authorizationUrl = getAuthorizationUrl(provider, {
+    state,
+    codeChallenge: createHash('sha256').update(verifier).digest('base64url'),
+    redirectUri: callback(provider),
+  });
   const jar = await cookies();
   jar.set(`jev_oauth_${provider}`, state, {
     httpOnly: true,
@@ -25,13 +30,7 @@ export async function beginConnection(
     maxAge: 600,
     path: `/api/accounts/${provider.toLowerCase()}/callback`,
   });
-  return NextResponse.redirect(
-    getAuthorizationUrl(provider, {
-      state,
-      codeChallenge: createHash('sha256').update(verifier).digest('base64url'),
-      redirectUri: callback(provider),
-    }),
-  );
+  return NextResponse.redirect(authorizationUrl);
 }
 export async function finishConnection(provider: Provider, userId: string, url: URL) {
   const state = url.searchParams.get('state'),

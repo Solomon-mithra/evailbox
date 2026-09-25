@@ -76,7 +76,9 @@ async function evaluateQuestions(
       },
     },
     questions,
-    maxRetries: 1,
+    // Failed evaluations stay pending for a later worker. An in-request retry can
+    // run before a provider's cooldown and consume the rest of the batch budget.
+    maxRetries: 0,
     abortSignal: AbortSignal.timeout(Math.min(20000, Math.floor(timeoutMs))),
     providerOptions: { gateway: { zeroDataRetention: true, disallowPromptTraining: true } },
   });

@@ -16,7 +16,7 @@ export function ProviderLogo({
       width={size}
       height={size}
       unoptimized
-      style={{ objectFit: 'contain', flexShrink: 0 }}
+      style={{ width: size, height: size, objectFit: 'contain', flexShrink: 0 }}
     />
   );
 }

@@ -48,6 +48,20 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 describe('OAuth protocol', () => {
+  it.each(['', 'replace-with-microsoft-client-secret', 'sb_secret_••••'])(
+    'rejects Outlook before redirect when its secret is unconfigured (%s)',
+    (secret) => {
+      vi.stubEnv('MICROSOFT_CLIENT_SECRET', secret);
+      expect(() =>
+        getAuthorizationUrl('OUTLOOK', {
+          state: 'state',
+          codeChallenge: 'challenge',
+          redirectUri: 'https://app.example/callback',
+        }),
+      ).toThrow('Outlook connection is not configured');
+      expect(mockFetch).not.toHaveBeenCalled();
+    },
+  );
   it('uses read-only scopes and PKCE', () => {
     const options = {
       state: 'state',

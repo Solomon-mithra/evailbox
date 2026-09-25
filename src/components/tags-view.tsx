@@ -34,7 +34,9 @@ export function TagsView({ tagId }: { tagId?: string }) {
       toast[r.errors ? 'warning' : 'success'](
         r.demo
           ? 'Demo emails checked against your tags.'
-          : `Checked ${r.classified} tag matches${r.remaining ? ' · run again to continue' : ''}${r.errors ? ' · some checks failed; try again' : ''}`,
+          : r.rateLimited
+            ? `Completed ${r.classified} tag checks. AI rate limit reached; progress saved. Try again in ${r.retryAfterSeconds ?? 60} seconds.`
+            : `Completed ${r.classified} tag checks${r.remaining ? ' · run again to continue' : ''}${r.errors ? ' · some checks failed; try again' : ''}`,
       );
     } catch (e) {
       toast.error((e as Error).message);
@@ -51,7 +53,9 @@ export function TagsView({ tagId }: { tagId?: string }) {
         <div>
           <h1>{tagId ? (tag?.name ?? 'Tag details') : 'Tags'}</h1>
           <p>
-            {tagId ? tag?.description : 'Choose what matters. evailbox finds the emails that match.'}
+            {tagId
+              ? tag?.description
+              : 'Choose what matters. evailbox finds the emails that match.'}
           </p>
         </div>
         <div className="heading-actions">

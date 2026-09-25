@@ -7,28 +7,24 @@ import { ApiError } from './errors';
 import { isDemo } from './env';
 export async function supabaseServer() {
   const jar = await cookies();
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookieOptions: {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        path: '/',
-      },
-      cookies: {
-        getAll: () => jar.getAll(),
-        setAll: (values) => {
-          try {
-            values.forEach(({ name, value, options }) => jar.set(name, value, options));
-          } catch {
-            /* Read-only server components refresh through proxy. */
-          }
-        },
+  return createServerClient(process.env.SUPABASE_URL!, process.env.SUPABASE_PUBLISHABLE_KEY!, {
+    cookieOptions: {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+    },
+    cookies: {
+      getAll: () => jar.getAll(),
+      setAll: (values) => {
+        try {
+          values.forEach(({ name, value, options }) => jar.set(name, value, options));
+        } catch {
+          /* Read-only server components refresh through proxy. */
+        }
       },
     },
-  );
+  });
 }
 export async function requireUser() {
   if (isDemo())
@@ -46,9 +42,7 @@ export async function requireUser() {
   });
 }
 export function adminAuth() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false, autoRefreshToken: false } },
-  ).auth.admin;
+  return createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SECRET_KEY!, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  }).auth.admin;
 }

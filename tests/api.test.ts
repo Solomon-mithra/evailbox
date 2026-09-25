@@ -1,4 +1,5 @@
-import { beforeEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
+afterEach(() => vi.unstubAllEnvs());
 const mocks = vi.hoisted(() => ({
   requireUser: vi.fn(),
   tagFind: vi.fn(),
@@ -88,6 +89,12 @@ describe('API authorization and isolation', () => {
   it('validates settings before any write', async () => {
     const response = await PATCH(request('settings', 'PATCH', { minConfidence: 200 }));
     expect(response.status).toBe(400);
+  });
+  it('rejects enabling digests when delivery is not configured', async () => {
+    vi.stubEnv('RESEND_API_KEY', '');
+    const response = await PATCH(request('settings', 'PATCH', { dailyDigest: true }));
+    expect(response.status).toBe(503);
+    expect((await response.json()).error.code).toBe('DIGEST_NOT_CONFIGURED');
   });
 });
 
