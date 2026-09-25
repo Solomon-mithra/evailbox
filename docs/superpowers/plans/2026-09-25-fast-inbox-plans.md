@@ -16,11 +16,11 @@
   - Add /api/inbox, /api/workspace/metadata, /api/workspace/counts. Cursor is validated receivedAt/id with tenant/workspace filtering; take 51, return 50 plus nextCursor, no body fetch.
   - Restore safe cached summaries only after identifying the authenticated user; keep user/workspace in every private query key. Never persist bodies, credentials or auth session. Clear affected caches across tabs on logout/disconnect/deletion.
   - Verify unchanged authenticated reads do not write users; every private API still verifies session. Test cursor tie ordering and tampering, summary projection, separate metadata/count queries and storage failure fallback.
-- [ ] 2. Async jobs and Realtime.
+- [x] 2. Async jobs and Realtime. Committed 0f25fc6: 16 job/route/Realtime tests, typecheck and targeted lint; Inngest activation pending user setup.
   - Files: src/lib/inngest/*, src/lib/work-queue.ts, src/lib/sync.ts, src/app/api/inngest/route.ts, src/app/api/[...path]/route.ts, src/lib/realtime.ts, client subscriber, tests/jobs.test.ts.
   - Sync durably marks work and returns 202. Inngest dispatch failure leaves recoverable work, not lost requests. Fetch and classify run separate checkpointed steps, continue backlog automatically, respect cooldowns and lease revisions.
   - Private Realtime signals contain only workspace/revision, with own-user authorization. A missed signal is repaired by refocus/polling.
-- [ ] 3. Provider triggers and renewal.
+- [x] 3. Provider triggers and renewal. Committed 11b9559: 45 webhook/renewal/credential/disconnect fixtures; SERVICE_SETUP published; live activation pending.
   - Files: src/lib/mailbox-subscriptions.ts, src/lib/providers/webhooks.ts, src/app/api/webhooks/{gmail,outlook}/route.ts, Prisma subscription state, renewal/recovery jobs, tests/mailbox-subscriptions.test.ts.
   - Verify Google's Pub/Sub JWT issuer/audience/service-account identity and exact subscription; validate Graph clientState and subscription identity before requesting scoped work. Handle challenge/lifecycle events and duplicates. Renew watches/subscriptions ahead of expiry and periodically recover incremental deltas.
   - Publish setup documentation for absent live credentials; no fabricated live acceptance.
