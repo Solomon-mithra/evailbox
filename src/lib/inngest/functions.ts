@@ -5,6 +5,7 @@ import { db } from '../db';
 import { ApiError } from '../errors';
 import { requestDailySync } from '../work-queue';
 import { isDemo } from '../env';
+import { renewMailboxSubscriptions } from '../mailbox-subscriptions';
 import { recoverPendingWork } from './dispatch';
 import { fetchWorkBatch, classifyWorkBatch, finishWorkBatch } from './work';
 
@@ -25,6 +26,9 @@ export const processInboxWork = inngest.createFunction(
       }),
     );
     if (!state?.workRequested) return { skipped: true };
+    await step.run('renew-mailbox-subscriptions', () =>
+      renewMailboxSubscriptions({ userId, deadline: Date.now() + 40000 }),
+    );
     const sync = await step.run('fetch-mailbox-page-batches', () => fetchWorkBatch(userId));
     // The delay is durable; no Vercel instance is held open while sleeping.
     if (new Date(state.workNotBefore).getTime() > Date.now())
@@ -69,4 +73,27 @@ export const recoverMailboxChanges = inngest.createFunction(
   },
 );
 
-export const functions = [processInboxWork, recoverWork, recoverMailboxChanges];
+export const renewSubscriptions = inngest.createFunction(
+  {
+    id: 'renew-mailbox-subscriptions',
+    triggers: [{ cron: '0 * * * *' }, { event: 'evailbox/subscriptions.renew' }],
+    concurrency: 1,
+    retries: 4,
+  },
+  async ({ step, runId }) => {
+    if (isDemo()) return { skipped: true };
+    const result = await step.run('renew-due-subscriptions', () =>
+      renewMailboxSubscriptions({ deadline: Date.now() + 40000 }),
+    );
+    if (result.pending) {
+      await step.sleep('yield-between-batches', '30s');
+      await step.sendEvent('continue-renewals', {
+        id: `renew:${runId}`,
+        name: 'evailbox/subscriptions.renew',
+        data: {},
+      });
+    }
+    return result;
+  },
+);
+export const functions = [processInboxWork, recoverWork, recoverMailboxChanges, renewSubscriptions];

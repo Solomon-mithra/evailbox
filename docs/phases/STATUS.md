@@ -1,3 +1,7 @@
+## 2026-09-25 — Provider event integration implemented
+
+Authenticated Gmail Pub/Sub, shared Outlook subscriptions, hourly renewal with bounded continuation, OAuth renewal requests and locked disconnect cleanup are implemented. Setup instructions are in [SERVICE_SETUP](../engineering/SERVICE_SETUP.md); live activation is intentionally deferred. Provider webhook/renewal/credential/disconnect fixtures cover 45 cases without live email access.
+
 ## 2026-09-25 — Async processing implemented
 
 Sync and classification requests now enqueue durable work. Inngest fetches and classifies in separate resumable steps; private Supabase broadcasts invalidate only the signed-in user/workspace. Partial configuration never claims the worker is active. 16 focused job, route and Realtime tests pass, including actual RLS isolation in PGlite. External Inngest activation is intentionally deferred by the user.

@@ -1,10 +1,12 @@
 import 'server-only';
 import { createHash, randomBytes } from 'node:crypto';
 import { cookies } from 'next/headers';
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { createOAuthState, verifyOAuthState, constantTimeEqual, encrypt } from './crypto';
 import { exchangeCode, getAuthorizationUrl, getMailboxIdentity, type Provider } from './providers';
 import { requestWork } from './work-queue';
+import { requestMailboxSubscriptionRenewal } from './mailbox-subscriptions';
+import { publishUserWork } from './inngest/dispatch';
 import { db } from './db';
 import { ApiError } from './errors';
 import type { WorkspaceId } from './workspace-selection';
@@ -60,7 +62,7 @@ export async function finishConnection(provider: Provider, userId: string, url: 
       'OFFLINE_ACCESS_REQUIRED',
       'Reconnect and grant offline access to enable syncing.',
     );
-  await db.emailAccount.upsert({
+  const account = await db.emailAccount.upsert({
     where: { userId_workspace_provider_email: { userId, workspace, provider, email } },
     create: {
       userId,
@@ -78,7 +80,11 @@ export async function finishConnection(provider: Provider, userId: string, url: 
       syncError: null,
     },
   });
+  await requestMailboxSubscriptionRenewal(userId, account.id, workspace);
   await requestWork(userId, { sync: true, workspace });
+  after(async () => {
+    await publishUserWork(userId);
+  });
   return NextResponse.redirect(
     new URL('/accounts?connected=1&workspace=' + workspace, process.env.NEXT_PUBLIC_APP_URL),
   );

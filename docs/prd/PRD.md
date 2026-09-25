@@ -69,3 +69,7 @@ Local: tests, typecheck, lint, production build and browser journeys pass with r
 ### Phase 7 implementation evidence — asynchronous work
 
 The enqueue-only Sync contract and private Realtime invalidations are implemented. Fetching can proceed during an inference cooldown; classification remains resumable and revision guarded. Live activation is pending user-supplied Inngest keys and endpoint registration.
+
+### Phase 7 implementation evidence — provider events
+
+Gmail push and Outlook subscription lifecycle recovery are implemented with encrypted private state, account ownership checks, shared-mailbox fanout and lease-protected disconnect cleanup. Provider setup and acceptance remain separate from fixture verification.

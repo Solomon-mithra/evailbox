@@ -62,6 +62,7 @@ model Tag {
   @@map("tags")
 }
 model EmailAccount {
+  mailboxSubscription MailboxSubscription?
   workspace WorkspaceKind @default(PERSONAL)
   id String @id @default(cuid())
   userId String @db.Uuid
@@ -172,4 +173,31 @@ model DigestHistory {
   user User @relation(fields:[userId],references:[id],onDelete:Cascade)
   @@unique([userId,localDate])
   @@map("digest_history")
+}
+
+
+model MailboxSubscription {
+  accountId String @id
+  userId String @db.Uuid
+  workspace WorkspaceKind
+  provider Provider
+  providerSubscriptionId String?
+  providerMailboxId String?
+  resource String?
+  clientState String?
+  expiresAt DateTime?
+  watchHistoryId String?
+  status String @default("pending")
+  renewalRequested Boolean @default(true)
+  renewalRevision Int @default(0)
+  renewalLeaseId String?
+  renewalLeaseUntil DateTime?
+  retryAt DateTime @default(now())
+  lastError String?
+  updatedAt DateTime @updatedAt
+  account EmailAccount @relation(fields:[accountId,userId,workspace],references:[id,userId,workspace],onDelete:Cascade)
+  @@unique([accountId,userId,workspace])
+  @@index([providerSubscriptionId])
+  @@index([renewalRequested,retryAt,expiresAt])
+  @@map("mailbox_subscriptions")
 }
