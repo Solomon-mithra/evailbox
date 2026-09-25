@@ -28,14 +28,17 @@ Open http://localhost:3000 for the homepage, or http://localhost:3000/inbox for 
 - Rule-focused tag cards with workspace-wide counts, visible editing and confirmed deletion; typed Jev decisions and persisted email–tag/version results, including negative and uncertain decisions.
 - A durable backlog worker with leases, revision checks, backoff, and one native Jev evaluation per email for its unfinished tags. Completed pairs are not automatically re-evaluated.
 - Responsive inbox, priority section, expandable tag groups, search/compound filters, detail dialogs, handled state, account controls and settings.
-- Web Push delivery and timezone-aware digests with immutable retry payloads, unsubscribe and delivery history.
+- Lightweight 50-summary cursor reads, user/workspace IndexedDB caching and private Realtime invalidation.
+- Inngest background jobs, Gmail Pub/Sub and Outlook subscription renewal/recovery; external activation is pending setup.
+- Explicit reply/reply-all, durable drafts, provider read/archive actions and account management.
+- Starter $14 and Heavy $24 pricing preview, administrative access grants and usage visibility, with no billing or usage blockers.
 - PostgreSQL migrations, RLS, tenant-consistent foreign keys, CI, security tests and operational runbooks.
 
 Jev returns structured probabilities, not generated reasoning. The UI displays a deterministic decision trace. Structure can be validated; semantic correctness is not guaranteed.
 
 ## Connect live services
 
-Read [the runbook](docs/engineering/RUNBOOK.md) before switching `APP_MODE` to `live`. Fill the variables in [.env.example](.env.example) using your own Supabase project, provider OAuth applications, Vercel AI Gateway key and verified digest sender. Generate encryption, cron and VAPID secrets once and keep them private. Startup validates required configuration.
+Read [the runbook](docs/engineering/RUNBOOK.md) before switching `APP_MODE` to `live`. Fill the variables in [.env.example](.env.example) using your own Supabase project, provider OAuth applications, Vercel AI Gateway key and Inngest keys. Generate encryption and cron secrets once and keep them private. Startup validates required configuration.
 
 ```bash
 npm run db:migrate
@@ -47,11 +50,11 @@ npm run build
 
 The migrations target Supabase and reference `auth.users`, `auth.uid()`, `anon`, and `authenticated`. Do not apply them to an unrelated production database. Tests execute both migrations, including the Personal/Work upgrade, in isolated PGlite PostgreSQL with Supabase-style auth fixtures; they do not provision or verify a live Supabase project.
 
-The root `vercel.json` currently disables cron. The optional `vercel.live.json` schedules daily sync at 03:00 UTC, backlog work every minute, and digest checks every 15 minutes; it requires a compatible plan and verified deployment. The UI’s refresh setting controls query polling, not provider polling. See the [cost and architecture review](docs/engineering/COST_RISK.md) before enabling paid production use or increasing processing allowances.
+All Vercel cron configurations disable cron. Inngest owns recovery and renewal schedules. Follow [Service setup](docs/engineering/SERVICE_SETUP.md) when ready to connect the external services. The UI refresh preference polls saved results; provider triggers and recovery prepare new mail in the background.
 
 ## Verification and readiness
 
-See [current validation status](docs/phases/STATUS.md). Real OAuth consent, production Supabase migration, live Jev results, browser push delivery, digest delivery, provider quotas, and 24-hour operational monitoring must be verified using configured live services before calling the system beta-ready. The deployed demo is a review surface.
+See [current validation status](docs/phases/STATUS.md) and [Phase 7](docs/phases/PHASE_7.md). Fixture and browser tests are separate from live provider consent, callback delivery, Inngest activation and production latency acceptance. Notifications and digests are retired.
 
 ## Documentation
 
@@ -60,7 +63,7 @@ See [current validation status](docs/phases/STATUS.md). Real OAuth consent, prod
 - [Tech stack](docs/engineering/TECH_STACK.md)
 - [Provider contracts](docs/engineering/PROVIDERS.md)
 - [Large inboxes and checkpoints](docs/engineering/LARGE_INBOXES.md)
-- [Cost risk, $3.99 pricing and processing limits](docs/engineering/COST_RISK.md)
+- [Historical cost worksheet assumptions](docs/engineering/COST_RISK.md)
 - [Reproducible cost worksheet](docs/engineering/COST_WORKSHEET.md)
 - [Personal/Work spaces and browser-storage migration](docs/engineering/WORKSPACES.md)
 - [Theme, landing page and browser review](docs/engineering/THEME.md)
@@ -74,4 +77,4 @@ All 38 original task IDs retain step-by-step instructions and acceptance criteri
 
 ## Deployment configurations
 
-The default `vercel.json` and `vercel.demo.json` disable cron for the current Hobby-plan demo. `vercel.live.json` preserves the full live schedule. After configuring services and a compatible plan, copy `vercel.live.json` to `vercel.json`, commit that change, then deploy. The Vercel remote build reads the root configuration even when a different local config was supplied; the first alternate-config attempt was rejected for that reason. `.vercelignore` explicitly excludes every environment file from uploads.
+`vercel.json`, `vercel.demo.json` and `vercel.live.json` leave scheduling to Inngest. `.vercelignore` excludes environment files. No deployment is implied by local implementation or tests.

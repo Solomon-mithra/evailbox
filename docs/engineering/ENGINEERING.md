@@ -1,6 +1,6 @@
 # Engineering design
 
-Source of truth: `prisma/schema.prisma`, `prisma/migrations/` (initial schema and Personal/Work upgrade), `src/app/api/[...path]/route.ts` and service modules. Reviewed 2026-09-21. A source implementation is not external validation; deployment, live OAuth, mailbox, model and delivery checks require separate evidence.
+Source of truth: `prisma/schema.prisma`, `prisma/migrations/` (initial schema and Personal/Work upgrade), `src/app/api/[...path]/route.ts` and service modules. Reviewed 2026-09-21; Phase 7 surfaces updated 2026-09-25 (see [Phase 7](../phases/PHASE_7.md)). Push notifications and digests are retired: their historical tables remain inert, and no route, worker or dependency delivers them. A source implementation is not external validation; deployment, live OAuth, mailbox, model and delivery checks require separate evidence.
 
 ## Routes, identity and UI ownership
 
@@ -8,12 +8,13 @@ Source of truth: `prisma/schema.prisma`, `prisma/migrations/` (initial schema an
 | --------------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
 | Public homepage       | `/`, `src/app/page.tsx`, `src/app/page.module.css`                             | Indexable evailbox introduction; **Open inbox** links to `/inbox`; no Supabase initialization for the root page |
 | Illustrative example  | `src/components/landing-example.tsx`                                           | Personal/Work rule-to-matches example with labeled synthetic results and keyboard-operable selectors            |
-| App                   | `/inbox`, `/tags`, `/tags/[id]`, `/accounts`, `/settings`                      | Session-gated in live mode; explicit demo bypass; application metadata is noindex                               |
+| App                   | `/inbox`, `/tags`, `/tags/[id]`, `/drafts`, `/accounts`, `/settings`           | Session-gated in live mode; explicit demo bypass; application metadata is noindex                               |
 | Provider marks        | `src/components/provider-logo.tsx`, `/brands/gmail.svg`, `/brands/outlook.svg` | Shared local SVGs; exact asset routes remain public for signed-out visitors                                     |
 | Identity and theme    | `src/components/brand-mark.tsx`, `public/icon.svg`, `src/app/globals.css`      | evailbox mark; local Inter; cool off-white app canvas with retained box gradients; separate landing backdrop    |
 | Browser compatibility | `src/lib/browser-storage.ts`                                                   | Preserve old demo state and workspace selection while migrating to evailbox keys                                |
+| Pricing               | `/pricing`, `src/lib/plans.ts`                                                 | Public, indexable Starter $14/5,000 and Heavy $24/10,000 preview; billing and allowance enforcement are off     |
 
-Legacy root links containing `email` or `workspace` redirect to `/inbox` with query parameters preserved. Auth callbacks, app navigation, reset destinations, push and digest links use `/inbox`. Jev's model name, `JEV_*` settings and historical repository/deployment URLs retain their technical values. See [workspaces](WORKSPACES.md), [theme](THEME.md) and [provider sources](PROVIDER_LOGOS.md).
+Legacy root links containing `email` or `workspace` redirect to `/inbox` with query parameters preserved. Auth callbacks, app navigation and reset destinations use `/inbox`. Jev's model name, `JEV_*` settings and historical repository/deployment URLs retain their technical values. See [workspaces](WORKSPACES.md), [theme](THEME.md) and [provider sources](PROVIDER_LOGOS.md).
 
 ## Architecture
 
@@ -31,9 +32,12 @@ flowchart LR
   S --> G
   S --> M
   S --> J[AI Gateway native Jev evaluation]
-  C[Vercel authenticated cron] --> N
-  N --> W[VAPID Web Push]
-  N --> R[Resend digest]
+  I[Inngest resumable jobs and recovery schedules] --> S
+  N -->|durable request| I
+  G -->|Pub/Sub push| N
+  M -->|change notifications| N
+  N --> RT[Supabase Realtime private invalidation]
+  RT --> B
 ```
 
 UI queries and mutations use JSON APIs; live server-side sessions are verified with Supabase `getUser()`. `proxy.ts` refreshes auth cookies and protects private page navigation, while APIs enforce authentication independently. Demo mode is explicit (`APP_MODE=demo`); it does not connect to the database/providers and live operations fail with `DEMO_MODE` rather than pretending to succeed.
@@ -47,7 +51,7 @@ sequenceDiagram
   UI->>API: GET accounts/provider/auth
   API->>API: Generate verifier; encrypted user/provider/workspace/state; 10-minute cookie
   API-->>UI: Redirect with PKCE S256
-  UI->>P: Consent to read-only mail
+  UI->>P: Consent to mail access (gmail.modify / Mail.ReadWrite Mail.Send)
   P-->>API: Code + state callback
   API->>API: Match cookie; validate state age, provider and user; restore originating workspace
   API->>P: Exchange code + verifier
@@ -58,7 +62,7 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-  A[Manual request / daily trigger / minute worker] --> B[Claim user work lease then mailbox lease]
+  A[Sync request / provider event / Inngest recovery] --> B[Claim user work lease then mailbox lease]
   B --> C[Refresh expiring token if needed]
   C --> D[Fetch one provider page]
   D --> E[Transaction: upsert observed mail, terminal rescan cleanup, persist cursor]
@@ -67,8 +71,8 @@ flowchart TD
   F -->|no| G[Release owned lease]
   G --> H[Find missing or stale email/tag evaluations]
   H --> I[One email call with independent missing-tag questions]
-  I --> J[Persist match / no_match / uncertain with tag version]
-  J --> K[Eligible high-priority push]
+  I --> J[Batch-persist match / no_match / uncertain with tag, content and model versions]
+  J --> K[Realtime workspace revision signal]
   D -->|error| L[Safe error; retain cursor for retry]
 ```
 
@@ -80,55 +84,64 @@ flowchart TD
 - `workspace.ts`, `validation.ts`, API dispatch: public projections, tenant-scoped reads/mutations and request contracts.
 - `work-queue.ts`: durable requests/revisions, user leases, backoff and oldest-attempt scheduling.
 - `sync.ts`: account lease ownership, refresh, transactional pages, terminal rescan reconciliation, deadline/page limits and classification handoff.
-- `classification.ts`, `jev.ts`: versioned evaluation, retryable errors and deterministic probability traces.
-- `notifications.ts`, `digest.ts`, `notification-utils.ts`: push eligibility, timezone scheduling, delivery claims and escaping.
+- `classification.ts`, `classification-version.ts`, `jev.ts`: bounded-concurrency recent-first evaluation, content/tag/model freshness, guarded batch saves, retryable errors and deterministic probability traces.
+- `inbox.ts`, `query-cache.ts`: body-free cursor reads and user/workspace-partitioned IndexedDB summary persistence.
+- `inngest/`, `realtime.ts`, `mailbox-subscriptions.ts`, `providers/webhooks.ts`: durable background jobs, private invalidation, authenticated provider events and renewal. See [MAILBOX_EVENTS.md](MAILBOX_EVENTS.md).
+- `mail-actions.ts`, `providers/actions.ts`: reply/reply-all drafts, lease-claimed explicit sends with unknown-state reconciliation, read/unread and archive.
+- `plans.ts`, `account-management.ts`, `scripts/grant-plan.ts`: preview plans, trusted server-side entitlements, UTC-month usage and administrative grants.
 - Client hooks/components: React Query cache, local demo operations, forms, navigation and display. Server secrets never cross the boundary.
 
 ## API contract
 
 All JSON success responses use `{ "data": ... }`; failures use `{ "error": { "code", "message", "details"? } }`. Success responses use `Cache-Control: no-store`. Standard errors include 400 invalid input/JSON, 401 unauthenticated, 403 invalid origin, 404 tenant-scoped not found, 409 conflict, 413 oversized body, 500 safe internal error and 503 live action in demo mode. Every mutation requires an Origin exactly matching `NEXT_PUBLIC_APP_URL`; JSON bodies are bounded to 20,000 characters. Redirect endpoints return redirects rather than the JSON envelope.
 
-| Method and endpoint                  | Authentication            | Input / behavior                                                                                                                                                                                                     |
-| ------------------------------------ | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /api/health`                    | Public                    | `{status, mode}`; does not prove DB/provider health.                                                                                                                                                                 |
-| `POST /api/auth/signin`              | Public, live, same-origin | Starts Supabase Google OAuth; returns redirect URL.                                                                                                                                                                  |
-| `GET /api/auth/callback`             | OAuth code                | Exchanges sign-in code; redirects to callback page or error sign-in.                                                                                                                                                 |
-| `GET /api/auth/me`                   | User                      | Verified application user.                                                                                                                                                                                           |
-| `POST /api/auth/signout`             | User                      | Clears Supabase session.                                                                                                                                                                                             |
-| `GET /api/workspace`                 | User                      | Combined workspace and paged email query described below.                                                                                                                                                            |
-| `GET /api/tags`                      | User                      | Own tags ordered by creation.                                                                                                                                                                                        |
-| `POST /api/tags`                     | User                      | Full tag input; maximum 30 tags per workspace; returns 201.                                                                                                                                                          |
-| `GET /api/tags/:id`                  | User                      | Own tag or 404.                                                                                                                                                                                                      |
-| `PATCH /api/tags/:id`                | User                      | Partial tag input; increments version, removes existing tag classifications transactionally.                                                                                                                         |
-| `DELETE /api/tags/:id`               | User                      | Deletes own tag; classification cascade.                                                                                                                                                                             |
-| `GET /api/accounts`                  | User                      | Public account fields only: id, provider, email, lastSync, syncError.                                                                                                                                                |
-| `GET /api/accounts/gmail/auth`       | User                      | Starts independent Gmail PKCE consent redirect.                                                                                                                                                                      |
-| `GET /api/accounts/gmail/callback`   | User + OAuth state        | Validates state and connects Gmail.                                                                                                                                                                                  |
-| `GET /api/accounts/outlook/auth`     | User                      | Starts Microsoft PKCE consent redirect.                                                                                                                                                                              |
-| `GET /api/accounts/outlook/callback` | User + OAuth state        | Validates state and connects Outlook.                                                                                                                                                                                |
-| `DELETE /api/accounts/:id`           | User                      | Removes own mailbox and cached mail/classifications; does not revoke remote consent.                                                                                                                                 |
-| `POST /api/sync`                     | User                      | `{accountId?}`; durably requests provider sync and attempts a bounded user-worker pass; busy users return queued/pending.                                                                                            |
-| `POST /api/classify`                 | User                      | `{emailId, tagId?}`; explicit email required; force requested evaluation.                                                                                                                                            |
-| `POST /api/classify/batch`           | User                      | `{emailId?, emailIds?, tagId?}`; max 20 explicit IDs; without IDs process up to 100 pending candidate emails. User work lease prevents ordinary concurrent evaluation; durable pending work continues automatically. |
-| `GET /api/emails`                    | User                      | Same aggregate workspace response/filter query as `/api/workspace`, not a bare array.                                                                                                                                |
-| `GET /api/emails/:id`                | User                      | Own email with current-version tag classifications.                                                                                                                                                                  |
-| `PATCH /api/emails/:id`              | User                      | `{handled: boolean}`; local state only.                                                                                                                                                                              |
-| `GET /api/settings`                  | User                      | Creates defaults if absent; returns safe preferences projection.                                                                                                                                                     |
-| `PATCH /api/settings`                | User                      | Partial preference input; no server secret fields.                                                                                                                                                                   |
-| `GET /api/push/key`                  | User                      | Public VAPID key.                                                                                                                                                                                                    |
-| `POST /api/push/subscriptions`       | User                      | `{endpoint, keys:{p256dh,auth}}`; allowed push-provider host, user-bound upsert; 201.                                                                                                                                |
-| `DELETE /api/push/subscriptions`     | User                      | `{endpoint}`; deletes only own subscription.                                                                                                                                                                         |
-| `POST /api/unsubscribe`              | Public token, same-origin | `{token: UUID}`; disables daily digest; web landing page posts it.                                                                                                                                                   |
-| `DELETE /api/user`                   | User                      | `{confirm:"DELETE"}`; deletes Supabase identity, application user/cascades, session.                                                                                                                                 |
-| `GET /api/cron/sync`                 | Cron bearer secret        | Daily marks accounts/users requested, then starts a bounded worker pass; demo returns skipped.                                                                                                                       |
-| `GET /api/cron/work`                 | Cron bearer secret        | Every-minute worker drains due durable requested work, oldest attempt first.                                                                                                                                         |
-| `GET /api/cron/digest`               | Cron bearer secret        | Sends due digests; demo returns skipped.                                                                                                                                                                             |
+| Method and endpoint                                      | Authentication            | Input / behavior                                                                                                                                                                                                     |
+| -------------------------------------------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/health`                                        | Public                    | `{status, mode}`; does not prove DB/provider health.                                                                                                                                                                 |
+| `POST /api/auth/signin`                                  | Public, live, same-origin | Starts Supabase Google OAuth; returns redirect URL.                                                                                                                                                                  |
+| `GET /api/auth/callback`                                 | OAuth code                | Exchanges sign-in code; redirects to callback page or error sign-in.                                                                                                                                                 |
+| `GET /api/auth/me`                                       | User                      | Verified application user.                                                                                                                                                                                           |
+| `POST /api/auth/signout`                                 | User                      | Clears Supabase session.                                                                                                                                                                                             |
+| `GET /api/workspace`                                     | User                      | Combined workspace and paged email query described below.                                                                                                                                                            |
+| `GET /api/tags`                                          | User                      | Own tags ordered by creation.                                                                                                                                                                                        |
+| `POST /api/tags`                                         | User                      | Full tag input; maximum 30 tags per workspace; returns 201.                                                                                                                                                          |
+| `GET /api/tags/:id`                                      | User                      | Own tag or 404.                                                                                                                                                                                                      |
+| `PATCH /api/tags/:id`                                    | User                      | Partial tag input; increments version, removes existing tag classifications transactionally.                                                                                                                         |
+| `DELETE /api/tags/:id`                                   | User                      | Deletes own tag; classification cascade.                                                                                                                                                                             |
+| `GET /api/accounts`                                      | User                      | Public account fields only: id, provider, email, lastSync, syncError.                                                                                                                                                |
+| `GET /api/accounts/gmail/auth`                           | User                      | Starts independent Gmail PKCE consent redirect.                                                                                                                                                                      |
+| `GET /api/accounts/gmail/callback`                       | User + OAuth state        | Validates state and connects Gmail.                                                                                                                                                                                  |
+| `GET /api/accounts/outlook/auth`                         | User                      | Starts Microsoft PKCE consent redirect.                                                                                                                                                                              |
+| `GET /api/accounts/outlook/callback`                     | User + OAuth state        | Validates state and connects Outlook.                                                                                                                                                                                |
+| `DELETE /api/accounts/:id`                               | User                      | Removes own mailbox and cached mail/classifications; does not revoke remote consent.                                                                                                                                 |
+| `POST /api/sync`                                         | User                      | `{accountId?}`; durably marks work and returns 202; Inngest performs fetching and classification. Dispatch failure leaves recoverable work.                                                                          |
+| `POST /api/classify`                                     | User                      | `{emailId, tagId?}`; explicit email required; force requested evaluation.                                                                                                                                            |
+| `POST /api/classify/batch`                               | User                      | `{emailId?, emailIds?, tagId?}`; max 20 explicit IDs; without IDs process up to 100 pending candidate emails. User work lease prevents ordinary concurrent evaluation; durable pending work continues automatically. |
+| `GET /api/emails`                                        | User                      | Same aggregate workspace response/filter query as `/api/workspace`, not a bare array.                                                                                                                                |
+| `GET /api/emails/:id`                                    | User                      | Own email with current-version tag classifications.                                                                                                                                                                  |
+| `PATCH /api/emails/:id`                                  | User                      | `{handled: boolean}`; local state only; provider read/archive uses the actions endpoint.                                                                                                                             |
+| `GET /api/settings`                                      | User                      | Creates defaults if absent; returns safe preferences projection.                                                                                                                                                     |
+| `PATCH /api/settings`                                    | User                      | Partial preference input; no server secret fields.                                                                                                                                                                   |
+| `GET /api/inbox`                                         | User                      | 50 body-free summaries with current classifications and an opaque user/workspace/filter-bound `nextCursor`.                                                                                                          |
+| `GET /api/workspace/metadata`                            | User                      | Tags and safe accounts only.                                                                                                                                                                                         |
+| `GET /api/workspace/counts`                              | User                      | `total`, `needsTotal` and current-version `tagCounts`.                                                                                                                                                               |
+| `GET /api/emails/:id/draft`                              | User                      | `?mode=reply\|reply-all`; saved draft plus provider-derived recipients/thread context, or an actionable reconnect notice.                                                                                            |
+| `PATCH /api/emails/:id/draft`                            | User                      | `{body, mode, revision}`; revision-checked autosave; conflicts return 409.                                                                                                                                           |
+| `POST /api/emails/:id/reply`                             | User                      | `{intent:"send", draftId, revision}` claims and sends once; `{intent:"reconcile"}` checks an uncertain send without resending.                                                                                       |
+| `POST /api/emails/:id/actions`                           | User                      | `{action:"read"\|"unread"\|"archive"}` applied through the provider.                                                                                                                                                 |
+| `GET /api/drafts`                                        | User                      | Workspace draft summaries without bodies.                                                                                                                                                                            |
+| `GET /api/account`, `PATCH /api/account`                 | User                      | Profile, trusted plan, UTC-month usage; PATCH accepts only `displayName` and a non-billing `requestedPlan`.                                                                                                          |
+| `POST /api/webhooks/gmail`, `POST /api/webhooks/outlook` | Provider-authenticated    | Verified Pub/Sub JWT or Graph clientState/subscription identity; requests scoped work only.                                                                                                                          |
+| `/api/inngest`                                           | Inngest signing key       | Serves resumable fetch, classification, renewal and recovery functions.                                                                                                                                              |
+| `DELETE /api/user`                                       | User                      | `{confirm:"DELETE"}`; deletes Supabase identity, application user/cascades, session.                                                                                                                                 |
+| `GET /api/cron/sync`                                     | Cron bearer secret        | Manual/fallback trigger; not scheduled by default. Marks accounts/users requested; demo returns skipped.                                                                                                             |
+| `GET /api/cron/work`                                     | Cron bearer secret        | Manual/fallback trigger; not scheduled by default. Republishes due durable work to Inngest.                                                                                                                          |
 
-Workspace-scoped account, tag, email, sync and classification APIs accept `workspace=PERSONAL|WORK`; omission defaults to `PERSONAL` and invalid values fail validation. OAuth persists the originating workspace in encrypted state. Preferences, subscriptions and user deletion remain account-wide. Background workers cover both spaces while pairing only same-workspace email and rules.
+Workspace-scoped account, tag, email, sync and classification APIs accept `workspace=PERSONAL|WORK`; omission defaults to `PERSONAL` and invalid values fail validation. OAuth persists the originating workspace in encrypted state. Preferences, plans and user deletion remain account-wide. Background workers cover both spaces while pairing only same-workspace email and rules.
 
 Workspace query: `search` ≤200 characters; `tag` and `account` IDs ≤100; `range=week|month|all`; zero-based `page` 0–10000. Filters compose. Page size is 50; order is receivedAt descending then id descending. Search covers subject, sender and senderName. The response includes `user` (including workRequested), `tags`, safe `accounts`, `emails`, `preferences`, `total`, `page`, `pageSize`, `needsYou`, `needsTotal` and `tagCounts`. Workspace email bodies are returned as null; full detail is fetched separately. Stale classifications are filtered out of returned email details. `tagCounts` aggregates current matches across the selected workspace, rather than counting the loaded page. UI-only grouping controls must not be mistaken for undocumented query parameters.
 
-Tag input: trimmed name 1–60, description ≤500, prompt 10–2000, priority HIGH/MEDIUM/LOW, ≤30 keywords of 1–80 chars, ≤30 valid email sender hints. Unknown fields rejected. Tag names are case-insensitive unique per user/workspace, with a 30-tag limit in each space. Preferences: browserPush/dailyDigest booleans, digestTime `HH:mm`, valid IANA timezone, integer minConfidence 0–100, refreshMinutes 1–60. The notification minimum is separate from the classification decision threshold (default 80): lowering notification minimum does not turn a stored uncertain result into a match.
+Tag input: trimmed name 1–60, description ≤500, prompt 10–2000, priority HIGH/MEDIUM/LOW, ≤30 keywords of 1–80 chars, ≤30 valid email sender hints. Unknown fields rejected. Tag names are case-insensitive unique per user/workspace, with a 30-tag limit in each space. Preferences: refreshMinutes 1–60 only. Legacy notification columns remain in the database but are neither read nor writable through the API.
 
 ## Relational model and field dictionary
 

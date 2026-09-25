@@ -1,3 +1,11 @@
+## 2026-09-25 — Phase 7 integration review
+
+Local checks on 2026-09-25 at the final tree: `npm test` 297 tests in 34 files pass; `npm run typecheck` and `npm run lint` pass; `APP_MODE=demo npm run build` passes and lists every Phase 7 route. Each task commit was also verified as an isolated snapshot. Demo browser run (production build, `next start`): public `/pricing` at 1280 and 390 px; **Explore Heavy** opens Settings with Heavy preselected; profile/plan/usage renders; Reply opens the composer with sending account and recipients; a typed draft survives closing the dialog and reopens from Drafts; Simulate send reports no email sent and the Drafts status becomes Simulated; Mark read toggles to Mark unread; Archive closes the dialog, removes the message and lowers the counts; the landing nav fits one row at 1024 px with text links hidden at 768/390 px; mobile navigation lists Drafts; no horizontal overflow at 390 px. The only console errors were the local Vercel Analytics 404.
+
+Integration fixes: Settings now mounts the profile/plan section and honours `?plan=`; `/pricing` is linked from the landing page and sitemap; public copy, `llms.txt` and `index.md` no longer claim read-only access; the runbook regains the database, OAuth, Outlook, release-gate and incident sections lost in the Phase 7 rewrite; engineering and tech-stack references drop the retired push/digest system.
+
+Pending: `prisma migrate status` against the configured Supabase database lists six unapplied Phase 7 migrations. Applying them (after a backup) and running `scripts/grant-plan.ts solomonmithra99@gmail.com HEAVY` await owner approval. Inngest, Gmail Pub/Sub, Outlook and deployment remain unactivated.
+
 ## 2026-09-25 — Replies, drafts and mailbox actions implemented
 
 Replies, drafts, duplicate-send protection, provider read/archive and the Drafts page are implemented and covered by fixtures; no live email was sent. Public copy was corrected for the wider mail scopes. Full suite: 297 tests, typecheck and lint pass.

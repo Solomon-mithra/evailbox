@@ -38,7 +38,7 @@
   - Files: src/lib/providers/actions.ts, src/lib/mail-actions.ts, src/components/reply-composer.tsx, email-detail.tsx, Prisma draft/action state, routes and tests.
   - Reply/reply-all with draft autosave, correct sender/recipients/thread, plaintext composing and explicit user send. Store provider draft/sent identifiers and prevent automatic duplicate sends after ambiguous failures. Expose actionable reconnect permission errors. Add provider read/archive controls.
   - Fixture tests only for sends; no email sent during implementation.
-- [ ] 8. Integration review and release evidence.
+- [ ] 8. Integration review and release evidence. Local evidence recorded (297 tests, typecheck, lint, demo build, demo browser journeys). Remaining: apply Phase 7 migrations to hosted Supabase and run the owner Heavy grant — both await owner approval.
   - Run npm test, npm run typecheck, npm run lint, APP_MODE=demo npm run build.
   - Exercise demo browser flows, public pricing, settings/accounts, replies, workspace switching and responsive layouts.
   - Verify migrations in PGlite and available hosted Supabase; record actual owner grant and live integration gaps. Update docs/prd/PRD.md, docs/phases/PHASE_7.md and STATUS.md, engineering setup/runbook and commit final evidence.
