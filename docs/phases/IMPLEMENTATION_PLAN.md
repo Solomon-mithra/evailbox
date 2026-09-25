@@ -42,4 +42,8 @@
 - [x] Create the private GitHub repository, deploy the initial demo to Vercel and document required live credentials.
 - [ ] Resolve the recorded Vercel identity/deployment blocker and publish the latest approved revision; recent UI refinements are on `main` but remain undeployed.
 - [x] Record actual validation evidence, remaining external gates, rollback and 24-hour monitoring procedure.
-      Acceptance: no unverified OAuth, delivery, cron execution or production database checks are reported as passing; no work proceeds beyond Phase 6.
+      Acceptance: no unverified OAuth, delivery, cron execution or production database checks are reported as passing; Phase 7 is now explicitly authorized; see its separate plan.
+
+## 5. Phase 7 — approved 2026-09-25
+
+- [ ] Complete [fast inbox, replies and plan preview](PHASE_7.md), following the [task plan](../superpowers/plans/2026-09-25-fast-inbox-plans.md). Update PRD/status and commit each validated task.

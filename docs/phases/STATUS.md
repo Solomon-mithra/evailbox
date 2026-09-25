@@ -1,3 +1,13 @@
+# Current Phase 7 work — 2026-09-25
+
+The user approved fast cached inbox reads, asynchronous Inngest processing, provider subscriptions/recovery, versioned concurrent classification, removal of notifications/digests, manual replies, $14 Starter/$24 Heavy plan preview and full account management. Billing/limits remain unenforced. Every task updates the PRD/phase record and is committed independently. See [Phase 7](PHASE_7.md) and [the task plan](../superpowers/plans/2026-09-25-fast-inbox-plans.md).
+
+Baseline checkpoint `ef7a40f`: 165 tests pass; typecheck and lint pass. The verified owner Supabase identity exists; Heavy grant is pending. User requested setup instructions and will connect Inngest, Gmail Pub/Sub and Outlook later. Those live checks must remain pending.
+
+The record below is historical Phase 0–6 evidence; its old delivery scope and credential statements are superseded by Phase 7.
+
+---
+
 # Validation and deployment status
 
 Updated: 2026-09-21. Product: **evailbox**. This is a delivered implementation with an isolated demo. Live beta acceptance is **not yet complete**. This document is the current evidence summary; earlier counts and screenshots in the theme notes describe their individual review milestones.
