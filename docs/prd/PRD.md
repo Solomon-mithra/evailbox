@@ -93,3 +93,7 @@ Reply and reply-all compose plain text with provider-derived recipients and thre
 ### Phase 7 integration evidence
 
 Local checks on 2026-09-25 at the final tree: `npm test` 297 tests in 34 files pass; `npm run typecheck` and `npm run lint` pass; `APP_MODE=demo npm run build` passes and lists every Phase 7 route. Each task commit was also verified as an isolated snapshot. Demo browser run (production build, `next start`): public `/pricing` at 1280 and 390 px; **Explore Heavy** opens Settings with Heavy preselected; profile/plan/usage renders; Reply opens the composer with sending account and recipients; a typed draft survives closing the dialog and reopens from Drafts; Simulate send reports no email sent and the Drafts status becomes Simulated; Mark read toggles to Mark unread; Archive closes the dialog, removes the message and lowers the counts; the landing nav fits one row at 1024 px with text links hidden at 768/390 px; mobile navigation lists Drafts; no horizontal overflow at 390 px. The only console errors were the local Vercel Analytics 404. Hosted migration, owner grant and live-service activation remain pending.
+
+### Phase 7 hosted evidence
+
+On 2026-09-26 the hosted database received all nine migrations, including the removal of stored message bodies, after an owner-requested reset of mail data. The owner's Heavy grant is verified in application data and Supabase `app_metadata`.
