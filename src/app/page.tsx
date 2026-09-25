@@ -35,17 +35,17 @@ const faqs = [
   {
     question: 'Do I need to switch email apps?',
     answer:
-      'No. evailbox gives you a focused view of your Gmail and Outlook inboxes. Your mail stays with your provider, and you can open a message there to reply. Personal and work accounts can live in separate evailbox spaces.',
+      'No. evailbox gives you a focused view of your Gmail and Outlook inboxes. Your mail stays with your provider, and you can reply in evailbox or open the original message there. Personal and work accounts can live in separate evailbox spaces.',
   },
   {
     question: 'What happens to my email data?',
     answer:
-      'evailbox stores synced email content to build your workspace and sends a limited email sample and your tag rules to an external AI service for matching. Mailbox connections are read-only. You can disconnect an account to remove its synced data, or delete your evailbox account in Settings.',
+      'evailbox stores synced email content to build your workspace and sends a limited email sample and your tag rules to an external AI service for matching. Replies and mailbox actions happen only when you request them. You can disconnect an account to remove its synced data, or delete your evailbox account in Settings.',
   },
   {
     question: 'Will it always get every match right?',
     answer:
-      'AI can make mistakes. evailbox shows match probabilities and uncertain results so you can review them. You stay in control of your rules and decisions; evailbox never sends, archives, or deletes email in your provider account.',
+      'AI can make mistakes. evailbox shows match probabilities and uncertain results so you can review them. You stay in control of your rules and decisions; evailbox sends replies and applies read or archive actions only when you choose them.',
   },
 ];
 
@@ -188,7 +188,8 @@ export default function HomePage() {
                 <span className={styles.stepNumber}>03</span>
                 <h3>Give the right emails your time.</h3>
                 <p>
-                  Review matches, see their confidence, and mark messages handled.
+                  Review matches, see their confidence, mark messages handled, and reply when you’re
+                  ready.
                 </p>
               </li>
             </ol>
@@ -211,10 +212,10 @@ export default function HomePage() {
               <li>
                 <ShieldCheck size={21} aria-hidden="true" />
                 <div>
-                  <h3>Read-only by design.</h3>
+                  <h3>You decide what happens.</h3>
                   <p>
-                    We never send, archive, or delete emails in Gmail or Outlook. Reply in the apps
-                    you already use.
+                    Read, reply, or archive in evailbox. Each provider action follows your explicit
+                    choice; nothing sends itself.
                   </p>
                 </div>
               </li>

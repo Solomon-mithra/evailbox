@@ -143,8 +143,8 @@ export function AccountsView({ embedded = false }: { embedded?: boolean }) {
           <div>
             <strong>Your email stays yours.</strong>
             <p>
-              Connections use read-only access. evailbox never sends, archives, or deletes email in
-              your provider inbox. You can disconnect at any time.
+              evailbox sends a reply, marks a message read, or archives it only when you choose that
+              action. It never deletes email. You can disconnect at any time.
             </p>
           </div>
         </div>

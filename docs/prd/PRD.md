@@ -85,3 +85,7 @@ Browser push, in-app priority toasts, daily digests, unsubscribe and their deliv
 ### Phase 7 implementation evidence — classification throughput and freshness
 
 Classification evaluates recent mail first in bounded concurrent waves, stops starting requests after a 429 and shares the Jev cooldown. Each wave saves in one transaction that locks tags and emails and rejects stale tag versions, changed content hashes, archived rows or a changed model version. Decisions carry content hash and model/policy version; inbox reads, counts and persisted browser summaries ignore decisions from another version, so a model change invalidates results without new mail. First classifications increment UTC-month usage. Batch and completion metrics record durations and counts only.
+
+### Phase 7 implementation evidence — replies, drafts and mailbox actions
+
+Reply and reply-all compose plain text with provider-derived recipients and threading, autosave revision-checked drafts, and send only on an explicit Send. A send atomically claims the draft under a lease; explicit provider rejections return it to editing, while any ambiguous outcome after a provider write locks it as `unknown`, and Check status only reconciles. Drafts survive message archival. Read/unread/archive apply through the provider. OAuth scopes are now `gmail.modify` and `Mail.ReadWrite Mail.Send`; public copy no longer claims read-only access. Limitation: one draft per message, so a second reply to the same message must be sent from the provider.

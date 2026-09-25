@@ -350,6 +350,13 @@ export function mutateDemo(
         (e) => (e.classifications = e.classifications.filter((c) => c.tagId !== id)),
       );
     }
+  } else if (path.startsWith('/api/emails/') && path.endsWith('/actions')) {
+    const messageId = path.split('/').at(-2);
+    if (data.action === 'archive') w.emails = w.emails.filter((e) => e.id !== messageId);
+    else if (data.action === 'read' || data.action === 'unread')
+      w.emails = w.emails.map((e) =>
+        e.id === messageId ? { ...e, isRead: data.action === 'read' } : e,
+      );
   } else if (path.startsWith('/api/emails/')) {
     w.emails = w.emails.map((e) => (e.id === id ? { ...e, handled: Boolean(data.handled) } : e));
   } else if (path.startsWith('/api/accounts/')) {

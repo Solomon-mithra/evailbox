@@ -1,3 +1,7 @@
+## 2026-09-25 — Replies, drafts and mailbox actions implemented
+
+Replies, drafts, duplicate-send protection, provider read/archive and the Drafts page are implemented and covered by fixtures; no live email was sent. Public copy was corrected for the wider mail scopes. Full suite: 297 tests, typecheck and lint pass.
+
 ## 2026-09-25 — Classification throughput and freshness implemented
 
 Bounded concurrent recent-first classification, guarded batch saves, content/tag/model freshness and metadata-only metrics are implemented. Integration review fixed the remaining-work count overstating a wave with one stale email. The isolated task snapshot passes 265 tests, typecheck and lint.

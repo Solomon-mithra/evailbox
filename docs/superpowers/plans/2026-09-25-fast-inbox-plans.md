@@ -34,7 +34,7 @@
   - Files: src/lib/plans.ts, src/lib/account-management.ts, src/app/pricing/page.tsx, src/components/settings-view.tsx, accounts-view.tsx, navigation, server account endpoints, admin grant script and tests.
   - Starter $14/5k; Heavy $24/10k. Limits and charging remain off. No fake checkout/portal. Display actual trusted access, usage period and profile. Reconnect/disconnect/signout/delete remain safe; clean provider subscriptions and caches.
   - Grant existing verified owner's Heavy access through Supabase admin metadata, preserving unrelated metadata, then verify DB/auth result. No client-supplied plan escalation.
-- [ ] 7. In-app replies and drafts.
+- [x] 7. In-app replies and drafts. Verified: 297 tests, typecheck and lint pass. Fixture sends only; no live email sent. Existing mailbox connections must reconnect for the new scopes.
   - Files: src/lib/providers/actions.ts, src/lib/mail-actions.ts, src/components/reply-composer.tsx, email-detail.tsx, Prisma draft/action state, routes and tests.
   - Reply/reply-all with draft autosave, correct sender/recipients/thread, plaintext composing and explicit user send. Store provider draft/sent identifiers and prevent automatic duplicate sends after ambiguous failures. Expose actionable reconnect permission errors. Add provider read/archive controls.
   - Fixture tests only for sends; no email sent during implementation.

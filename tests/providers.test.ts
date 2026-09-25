@@ -62,18 +62,20 @@ describe('OAuth protocol', () => {
       expect(mockFetch).not.toHaveBeenCalled();
     },
   );
-  it('uses read-only scopes and PKCE', () => {
+  it('requests the least mailbox scopes needed for replies and actions, with PKCE', () => {
     const options = {
       state: 'state',
       codeChallenge: 'challenge',
       redirectUri: 'https://app.example/callback',
     };
     const google = new URL(getAuthorizationUrl('GMAIL', options));
-    expect(google.searchParams.get('scope')).toBe('https://www.googleapis.com/auth/gmail.readonly');
+    expect(google.searchParams.get('scope')).toBe('https://www.googleapis.com/auth/gmail.modify');
     expect(google.searchParams.get('code_challenge_method')).toBe('S256');
     expect(google.searchParams.get('access_type')).toBe('offline');
     const microsoft = new URL(getAuthorizationUrl('OUTLOOK', options));
-    expect(microsoft.searchParams.get('scope')).toBe('offline_access Mail.Read User.Read');
+    expect(microsoft.searchParams.get('scope')).toBe(
+      'offline_access Mail.ReadWrite Mail.Send User.Read',
+    );
     expect(microsoft.searchParams.get('state')).toBe('state');
   });
   it('exchanges code with verifier, rotates refresh token and computes expiry', async () => {

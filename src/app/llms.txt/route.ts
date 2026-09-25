@@ -8,7 +8,9 @@ export function GET() {
 
 evailbox connects Gmail and Outlook and matches emails against rules written in ordinary language. Personal and Work spaces keep accounts, rules, and mail separate. Matches include probabilities for review; AI can make mistakes.
 
-The product uses accounts and read-only mailbox connections. An explicitly labeled demo may be available with fictional data; it is not an account-free live email service. Email content and rule criteria are sent to an external AI service for matching. evailbox does not send, archive, or delete mail in the provider account.
+The product uses accounts and authorized mailbox connections. An explicitly labeled demo may be available with fictional data; it is not an account-free live email service. Email content and rule criteria are sent to an external AI service for matching. evailbox sends replies and marks messages read or archived in the provider account only when the user explicitly chooses that action; it does not delete mail or send anything automatically.
+
+Plans: Starter at $14/month (5,000 newly processed emails) and Heavy at $24/month (10,000). During the preview, billing is off and allowances are not enforced.
 
 Only public product information is described here. Inbox content, accounts, tags, settings, and APIs are not public reference material.
 

@@ -3,6 +3,7 @@ const fixture = vi.hoisted(() => ({
   fetch: vi.fn(),
   upsert: vi.fn(),
   deleteMany: vi.fn(),
+  retainDraft: vi.fn(),
   accountUpdate: vi.fn(),
   classify: vi.fn(),
   saveDurationMs: 0,
@@ -23,7 +24,11 @@ const fixture = vi.hoisted(() => ({
 vi.mock('@/lib/db', () => {
   const tx = {
     $queryRaw: async () => [{ observedAt: new Date() }],
-    email: { upsert: fixture.upsert, deleteMany: fixture.deleteMany },
+    email: {
+      upsert: fixture.upsert,
+      deleteMany: fixture.deleteMany,
+      updateMany: fixture.retainDraft,
+    },
     emailAccount: { update: fixture.accountUpdate, updateMany: fixture.accountUpdate },
   };
   return {
@@ -197,4 +202,30 @@ it('hashes the actual bounded classification input when importing messages', asy
   expect(row.create.contentHash).toBe(emailContentHash(message));
   expect(row.update.contentHash).toBe(row.create.contentHash);
   expect(row.update.inInbox).toBe(true);
+});
+it('retains disappeared messages with reply drafts but removes other message rows', async () => {
+  fixture.fetch.mockResolvedValueOnce({
+    hasMore: false,
+    cursor: 'next',
+    messages: [],
+    deletedIds: ['gone'],
+  });
+  await syncMailboxes('u');
+  expect(fixture.retainDraft).toHaveBeenCalledWith({
+    where: {
+      userId: 'u',
+      accountId: 'a',
+      providerMessageId: { in: ['gone'] },
+      replyDraft: { isNot: null },
+    },
+    data: { inInbox: false },
+  });
+  expect(fixture.deleteMany).toHaveBeenCalledWith({
+    where: {
+      userId: 'u',
+      accountId: 'a',
+      providerMessageId: { in: ['gone'] },
+      replyDraft: { is: null },
+    },
+  });
 });

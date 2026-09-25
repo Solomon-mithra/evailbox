@@ -4,8 +4,8 @@ import { authHeaders, requestJson, requiredEnv } from './http';
 import type { Provider, TokenSet } from './types';
 import { requireOutlookConfiguration } from '../integrations';
 const scopes = {
-  GMAIL: 'https://www.googleapis.com/auth/gmail.readonly',
-  OUTLOOK: 'offline_access Mail.Read User.Read',
+  GMAIL: 'https://www.googleapis.com/auth/gmail.modify',
+  OUTLOOK: 'offline_access Mail.ReadWrite Mail.Send User.Read',
 };
 function config(provider: Provider) {
   if (provider === 'GMAIL')

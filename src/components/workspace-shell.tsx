@@ -12,13 +12,15 @@ import { ChevronRight, LockKeyhole } from 'lucide-react';
 export function WorkspaceShell({ children }: { children: ReactNode }) {
   const { workspace, name } = useWorkspaceSelection();
   const pathname = usePathname();
-  const section = pathname.startsWith('/tags')
-    ? 'Tags'
-    : pathname.startsWith('/accounts')
-      ? 'Accounts'
-      : pathname.startsWith('/settings')
-        ? 'Settings'
-        : 'Inbox';
+  const section = pathname.startsWith('/drafts')
+    ? 'Drafts'
+    : pathname.startsWith('/tags')
+      ? 'Tags'
+      : pathname.startsWith('/accounts')
+        ? 'Accounts'
+        : pathname.startsWith('/settings')
+          ? 'Settings'
+          : 'Inbox';
   const demo = useDemo(),
     auth = useAuth();
   useInboxRealtime(auth.data?.id, workspace, !demo && !!auth.data && !auth.isError);

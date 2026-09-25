@@ -2,7 +2,18 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Inbox, Tags, Layers2, Settings2, LogOut, Menu, X, Plus, ArrowUpRight } from 'lucide-react';
+import {
+  Inbox,
+  FilePenLine,
+  Tags,
+  Layers2,
+  Settings2,
+  LogOut,
+  Menu,
+  X,
+  Plus,
+  ArrowUpRight,
+} from 'lucide-react';
 import { Dialog } from 'radix-ui';
 import { useEffect, useState } from 'react';
 import { useWorkspaceMetadata, useInboxCounts } from '@/hooks/useFetch';
@@ -15,6 +26,7 @@ import { BrandMark } from './brand-mark';
 const links = [
   { href: '/inbox', label: 'Inbox', icon: Inbox },
   { href: '/tags', label: 'Tags', icon: Tags },
+  { href: '/drafts', label: 'Drafts', icon: FilePenLine },
   { href: '/accounts', label: 'Accounts', icon: Layers2 },
   { href: '/settings', label: 'Settings', icon: Settings2 },
 ];
