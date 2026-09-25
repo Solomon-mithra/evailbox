@@ -1,3 +1,4 @@
+import { preferencesSchema } from './validation';
 import type { Workspace, Tag, Email, Filters } from '@/types';
 import type { TagInput } from './validation';
 import type { WorkspaceId } from './workspace-selection';
@@ -210,11 +211,6 @@ export function seedDemo(): Workspace {
     ],
     emails,
     preferences: {
-      browserPush: false,
-      dailyDigest: false,
-      digestTime: '09:00',
-      timezone: 'America/Los_Angeles',
-      minConfidence: 80,
       refreshMinutes: 5,
     },
     total: emails.length,
@@ -360,7 +356,9 @@ export function mutateDemo(
     w.accounts = w.accounts.filter((a) => a.id !== id);
     w.emails = w.emails.filter((e) => e.accountId !== id);
   } else if (path === '/api/settings') {
-    w.preferences = { ...w.preferences, ...data };
+    w.preferences = {
+      refreshMinutes: preferencesSchema.parse(data).refreshMinutes ?? w.preferences.refreshMinutes,
+    };
   } else if (path === '/api/sync') {
     w.accounts = w.accounts.map((a) => ({ ...a, lastSync: new Date().toISOString() }));
   } else if (path.startsWith('/api/classify')) {

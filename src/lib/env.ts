@@ -23,9 +23,6 @@ const live = common.extend({
   JEV_API_KEY: present,
   ENCRYPTION_SECRET_KEY: z.string().regex(/^[a-f0-9]{64}$/i),
   CRON_SECRET: present.min(32),
-  VAPID_PUBLIC_KEY: present,
-  VAPID_PRIVATE_KEY: present,
-  VAPID_SUBJECT: present,
 });
 // Optional services validate credentials when used, rather than blocking core startup.
 export function isConfigured(value: string | undefined): boolean {

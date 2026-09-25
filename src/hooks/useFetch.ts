@@ -9,18 +9,13 @@ import type {
   WorkspaceMetadata,
   InboxPage,
   InboxCounts,
-  NotificationPref,
+  AppPreferences,
 } from '@/types';
 import { useWorkspaceSelection } from '@/components/workspace-selection';
 import { workspacePath } from '@/lib/workspace-selection';
 import { clearPrivateCache, SUMMARY_MAX_AGE } from '@/lib/query-cache';
 
-const defaultPreferences: NotificationPref = {
-  browserPush: false,
-  dailyDigest: false,
-  digestTime: '09:00',
-  timezone: 'UTC',
-  minConfidence: 80,
+const defaultPreferences: AppPreferences = {
   refreshMinutes: 5,
 };
 function paramsFor(filters: Filters) {
@@ -46,7 +41,7 @@ function usePrivateQuery<T>(kind: string, path: string, filters: Filters, sample
         ? Promise.resolve(sample())
         : api.get<T>(workspacePath(`${path}?${paramsFor(filters)}`, workspace)),
     refetchInterval: () =>
-      (client.getQueryData<NotificationPref>(['private', user?.id, workspace, 'settings', {}])
+      (client.getQueryData<AppPreferences>(['private', user?.id, workspace, 'settings', {}])
         ?.refreshMinutes ?? 5) * 60000,
   });
 }
@@ -59,7 +54,7 @@ export function useWorkspaceMetadata() {
 }
 export function useWorkspaceSettings() {
   const { workspace } = useWorkspaceSelection();
-  return usePrivateQuery<NotificationPref>(
+  return usePrivateQuery<AppPreferences>(
     'settings',
     '/api/workspace/settings',
     {},

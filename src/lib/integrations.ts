@@ -9,8 +9,3 @@ export function requireOutlookConfiguration() {
   )
     throw new ApiError(503, 'OUTLOOK_NOT_CONFIGURED', 'Outlook connection is not configured.');
 }
-
-export function requireDigestConfiguration() {
-  if (!isConfigured(process.env.RESEND_API_KEY) || !isConfigured(process.env.DIGEST_FROM))
-    throw new ApiError(503, 'DIGEST_NOT_CONFIGURED', 'Email digest delivery is not configured.');
-}

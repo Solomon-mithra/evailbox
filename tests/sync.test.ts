@@ -51,7 +51,6 @@ vi.mock('@/lib/providers', () => ({ fetchEmailPage: fixture.fetch, refreshAccess
 vi.mock('@/lib/classification', () => ({
   classifyEmails: fixture.classify,
 }));
-vi.mock('@/lib/notifications', () => ({ notifyUser: vi.fn() }));
 import { syncMailboxes, syncUser } from '../src/lib/sync';
 beforeEach(() => {
   vi.clearAllMocks();

@@ -28,7 +28,7 @@
   - Files: src/lib/classification.ts, src/lib/classification-version.ts, src/lib/sync.ts, Prisma migration, src/lib/metrics.ts, focused tests.
   - Bounded concurrency prioritizes recent mail; do not start extra requests after 429. Save decisions in batches with locked tag/content/model version checks. Model changes must invalidate old decisions even without new mail.
   - Test stale tag/content races, failures/retries, negative-decision caching, latest model predicate, budgets and concurrency cap. Record metadata-only durations.
-- [ ] 5. Retire notifications/digests.
+- [x] 5. Retire notifications/digests. Verified on the isolated task snapshot: 243 tests, typecheck and lint pass. Historical delivery tables stay inert.
   - Remove service worker push delivery, notification UI/hooks, cron routes/schedules, delivery dependencies and env requirements. Preserve general refresh settings. Tests prove retired endpoints cannot deliver.
 - [ ] 6. Plans, pricing and account management.
   - Files: src/lib/plans.ts, src/lib/account-management.ts, src/app/pricing/page.tsx, src/components/settings-view.tsx, accounts-view.tsx, navigation, server account endpoints, admin grant script and tests.

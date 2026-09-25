@@ -18,12 +18,9 @@ import { requestWork, requestDailySync } from '@/lib/work-queue';
 import { publishUserWork, recoverPendingWork } from '@/lib/inngest/dispatch';
 import { backgroundConfigured } from '@/lib/inngest/client';
 import { POST as queueSync } from '@/app/api/sync/route';
-import { sendDigests } from '@/lib/digest';
 import { constantTimeEqual, decrypt } from '@/lib/crypto';
 import { isDemo } from '@/lib/env';
-import { requireDigestConfiguration } from '@/lib/integrations';
 import { workspaceIds } from '@/lib/workspace-selection';
-import { isPushEndpoint } from '@/lib/notification-utils';
 import {
   cleanupMailboxSubscription,
   requestMailboxSubscriptionRenewal,
@@ -47,7 +44,6 @@ async function dispatch(request: Request) {
     )
       throw new ApiError(401, 'UNAUTHORIZED', 'Invalid cron authorization.');
     if (isDemo()) return ok({ skipped: true, reason: 'demo' });
-    if (path === 'cron/digest') return ok(await sendDigests());
     if (path === 'cron/work') return ok(await recoverPendingWork());
     if (path === 'cron/sync') {
       await requestDailySync();
@@ -79,14 +75,6 @@ async function dispatch(request: Request) {
     return NextResponse.redirect(
       new URL(error ? '/signin?error=oauth' : '/callback', process.env.NEXT_PUBLIC_APP_URL),
     );
-  }
-  if (path === 'unsubscribe' && method === 'POST') {
-    const { token } = z.object({ token: z.uuid() }).parse(await jsonBody(request));
-    await db.notificationPref.updateMany({
-      where: { unsubscribeToken: token },
-      data: { dailyDigest: false },
-    });
-    return ok({ unsubscribed: true });
   }
   const user = await requireUser();
   if (path === 'auth/me' && method === 'GET') return ok(user);
@@ -130,12 +118,7 @@ async function dispatch(request: Request) {
         if ((await tx.tag.count({ where: { userId: user.id, workspace } })) >= 30)
           throw new ApiError(409, 'TAG_LIMIT', 'You can create up to 30 tags.');
         const created = await tx.tag.create({
-          data: {
-            ...data,
-            userId: user.id,
-            workspace,
-            nameKey: data.name.toLowerCase(),
-          },
+          data: { ...data, userId: user.id, workspace, nameKey: data.name.toLowerCase() },
         });
         await tx.user.update({
           where: { id: user.id },
@@ -151,9 +134,7 @@ async function dispatch(request: Request) {
   }
   if (/^tags\/[^/]+$/.test(path)) {
     const id = idSchema.parse(path.split('/')[1]);
-    const tag = await db.tag.findFirst({
-      where: { id, userId: user.id, workspace },
-    });
+    const tag = await db.tag.findFirst({ where: { id, userId: user.id, workspace } });
     if (!tag) throw new ApiError(404, 'NOT_FOUND', 'Tag not found.');
     if (method === 'GET') return ok(tag);
     if (method === 'PATCH') {
@@ -240,16 +221,13 @@ async function dispatch(request: Request) {
     const ids = data.emailId ? [data.emailId] : data.emailIds;
     if (
       ids &&
-      (await db.email.count({
-        where: { id: { in: ids }, userId: user.id, workspace },
-      })) !== new Set(ids).size
+      (await db.email.count({ where: { id: { in: ids }, userId: user.id, workspace } })) !==
+        new Set(ids).size
     )
       throw new ApiError(404, 'NOT_FOUND', 'Email not found.');
     if (
       data.tagId &&
-      !(await db.tag.findFirst({
-        where: { id: data.tagId, userId: user.id, workspace },
-      }))
+      !(await db.tag.findFirst({ where: { id: data.tagId, userId: user.id, workspace } }))
     )
       throw new ApiError(404, 'NOT_FOUND', 'Tag not found.');
     // Persist a rerun request by removing selected cached decisions before waking the worker.
@@ -276,11 +254,7 @@ async function dispatch(request: Request) {
         where: { id, userId: user.id, workspace },
         include: {
           classifications: {
-            include: {
-              tag: {
-                select: { id: true, name: true, priority: true, version: true },
-              },
-            },
+            include: { tag: { select: { id: true, name: true, priority: true, version: true } } },
           },
         },
       });
@@ -295,26 +269,14 @@ async function dispatch(request: Request) {
         .object({ handled: z.boolean() })
         .strict()
         .parse(await jsonBody(request));
-      const result = await db.email.updateMany({
-        where: { id, userId: user.id, workspace },
-        data,
-      });
+      const result = await db.email.updateMany({ where: { id, userId: user.id, workspace }, data });
       if (!result.count) throw new ApiError(404, 'NOT_FOUND', 'Email not found.');
       return ok({ updated: true });
     }
   }
-  if (path === 'settings' && method === 'GET')
-    return ok(
-      await db.notificationPref.upsert({
-        where: { userId: user.id },
-        create: { userId: user.id },
-        update: {},
-        select: publicPrefs,
-      }),
-    );
+  if (path === 'settings' && method === 'GET') return ok(await getWorkspaceSettings(user));
   if (path === 'settings' && method === 'PATCH') {
     const data = preferencesSchema.parse(await jsonBody(request));
-    if (data.dailyDigest === true) requireDigestConfiguration();
     return ok(
       await db.notificationPref.upsert({
         where: { userId: user.id },
@@ -323,51 +285,6 @@ async function dispatch(request: Request) {
         select: publicPrefs,
       }),
     );
-  }
-  if (path === 'push/key' && method === 'GET') return ok({ key: process.env.VAPID_PUBLIC_KEY });
-  if (path === 'push/subscriptions' && method === 'POST') {
-    const data = z
-      .object({
-        endpoint: z.url().max(4000).refine(isPushEndpoint, 'Unsupported push service'),
-        keys: z.object({
-          p256dh: z
-            .string()
-            .regex(/^[A-Za-z0-9_-]+$/)
-            .max(200),
-          auth: z
-            .string()
-            .regex(/^[A-Za-z0-9_-]+$/)
-            .max(100),
-        }),
-      })
-      .parse(await jsonBody(request));
-    const existing = await db.pushSubscription.findUnique({
-      where: { endpoint: data.endpoint },
-    });
-    if (existing && existing.userId !== user.id)
-      throw new ApiError(
-        409,
-        'SUBSCRIPTION_CONFLICT',
-        'This browser subscription belongs to another account.',
-      );
-    return ok(
-      existing
-        ? await db.pushSubscription.update({
-            where: { id: existing.id, userId: user.id },
-            data: data.keys,
-          })
-        : await db.pushSubscription.create({
-            data: { userId: user.id, endpoint: data.endpoint, ...data.keys },
-          }),
-      201,
-    );
-  }
-  if (path === 'push/subscriptions' && method === 'DELETE') {
-    const { endpoint } = z.object({ endpoint: z.url() }).parse(await jsonBody(request));
-    await db.pushSubscription.deleteMany({
-      where: { userId: user.id, endpoint },
-    });
-    return ok({ deleted: true });
   }
   if (path === 'user' && method === 'DELETE') {
     const { confirm } = z.object({ confirm: z.literal('DELETE') }).parse(await jsonBody(request));

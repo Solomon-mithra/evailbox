@@ -14,9 +14,6 @@ const gmailEnvironment = {
   JEV_API_KEY: 'gateway-key',
   ENCRYPTION_SECRET_KEY: 'a'.repeat(64),
   CRON_SECRET: 'b'.repeat(32),
-  VAPID_PUBLIC_KEY: 'public-fixture',
-  VAPID_PRIVATE_KEY: 'private-fixture',
-  VAPID_SUBJECT: 'mailto:admin@example.com',
 };
 it('starts live Gmail without Outlook or digest credentials', () => {
   expect(validateEnv(gmailEnvironment).APP_MODE).toBe('live');

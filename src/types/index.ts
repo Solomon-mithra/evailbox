@@ -46,12 +46,7 @@ export interface Email {
   webUrl: string;
   classifications: EmailClassification[];
 }
-export interface NotificationPref {
-  browserPush: boolean;
-  dailyDigest: boolean;
-  digestTime: string;
-  timezone: string;
-  minConfidence: number;
+export interface AppPreferences {
   refreshMinutes: number;
 }
 export interface Workspace {
@@ -62,7 +57,7 @@ export interface Workspace {
   tags: Tag[];
   accounts: EmailAccount[];
   emails: Email[];
-  preferences: NotificationPref;
+  preferences: AppPreferences;
   total: number;
   page: number;
   pageSize: number;

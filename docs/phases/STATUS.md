@@ -1,3 +1,7 @@
+## 2026-09-25 — Notifications and digests retired
+
+Push, digest and unsubscribe delivery paths, settings, environment requirements and schedules are removed; retired settings are rejected. The isolated task snapshot passes 243 tests, typecheck and lint.
+
 ## 2026-09-25 — Provider event integration implemented
 
 Authenticated Gmail Pub/Sub, shared Outlook subscriptions, hourly renewal with bounded continuation, OAuth renewal requests and locked disconnect cleanup are implemented. Setup instructions are in [SERVICE_SETUP](../engineering/SERVICE_SETUP.md); live activation is intentionally deferred. Provider webhook/renewal/credential/disconnect fixtures cover 45 cases without live email access.

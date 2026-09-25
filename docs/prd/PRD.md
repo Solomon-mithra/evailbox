@@ -73,3 +73,7 @@ The enqueue-only Sync contract and private Realtime invalidations are implemente
 ### Phase 7 implementation evidence — provider events
 
 Gmail push and Outlook subscription lifecycle recovery are implemented with encrypted private state, account ownership checks, shared-mailbox fanout and lease-protected disconnect cleanup. Provider setup and acceptance remain separate from fixture verification.
+
+### Phase 7 implementation evidence — notifications retired
+
+Browser push, in-app priority toasts, daily digests, unsubscribe and their delivery routes, environment variables, `web-push` dependency and Vercel cron schedules are removed. Settings keep only the inbox refresh preference; retired fields are rejected by validation. Returning browsers unsubscribe and unregister the old `/sw.js` worker. Historical preference/delivery tables remain inert rather than being dropped.

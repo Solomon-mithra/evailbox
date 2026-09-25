@@ -37,7 +37,7 @@ describe('input validation', () => {
     expect(tagSchema.safeParse({ ...tag, prompt: 'yes' }).success).toBe(false);
     expect(tagSchema.safeParse({ ...tag, senders: ['bad'] }).success).toBe(false);
   });
-  it('rejects invalid digest times and timezones', () => {
+  it('rejects retired delivery settings', () => {
     expect(preferencesSchema.safeParse({ digestTime: '25:99' }).success).toBe(false);
     expect(preferencesSchema.safeParse({ timezone: 'Mars/Base' }).success).toBe(false);
   });

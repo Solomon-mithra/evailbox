@@ -3,7 +3,7 @@ import Link from 'next/link';
 import {
   ArrowRight,
   ArrowUpRight,
-  Bell,
+  Mail,
   Check,
   ChevronDown,
   CircleCheck,
@@ -185,8 +185,7 @@ export default function HomePage() {
                 <span className={styles.stepNumber}>03</span>
                 <h3>Give the right emails your time.</h3>
                 <p>
-                  Review matches, see their confidence, and mark messages handled. Get optional
-                  alerts or a daily digest.
+                  Review matches, see their confidence, and mark messages handled.
                 </p>
               </li>
             </ol>
@@ -217,12 +216,12 @@ export default function HomePage() {
                 </div>
               </li>
               <li>
-                <Bell size={21} aria-hidden="true" />
+                <Mail size={21} aria-hidden="true" />
                 <div>
-                  <h3>You choose when to hear from us.</h3>
+                  <h3>Your next visit is ready.</h3>
                   <p>
-                    Priority notifications and daily digests are optional. Turn them on when they’re
-                    useful to you.
+                    New mail is prepared in the background, with recent results saved for a faster
+                    return to your inbox.
                   </p>
                 </div>
               </li>

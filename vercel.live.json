@@ -1,18 +1,5 @@
 {
-  "crons": [
-    {
-      "path": "/api/cron/sync",
-      "schedule": "0 3 * * *"
-    },
-    {
-      "path": "/api/cron/digest",
-      "schedule": "*/15 * * * *"
-    },
-    {
-      "path": "/api/cron/work",
-      "schedule": "* * * * *"
-    }
-  ],
+  "crons": [],
   "functions": {
     "src/app/api/**/route.ts": {
       "maxDuration": 60

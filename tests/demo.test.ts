@@ -49,9 +49,9 @@ it('supports tag create, edit, classifier and delete lifecycle', () => {
   mutateDemo('/api/tags/' + tag.id, 'DELETE', {});
   expect(readDemo().tags.find((t) => t.id === tag.id)).toBeUndefined();
 });
-it('persists notification preferences across reads', () => {
-  mutateDemo('/api/settings', 'PATCH', { dailyDigest: true, digestTime: '11:15' });
-  expect(readDemo().preferences).toMatchObject({ dailyDigest: true, digestTime: '11:15' });
+it('persists inbox refresh preferences across reads', () => {
+  mutateDemo('/api/settings', 'PATCH', { refreshMinutes: 15 });
+  expect(readDemo().preferences).toMatchObject({ refreshMinutes: 15 });
 });
 it('disconnecting one account removes only its cached mail', () => {
   mutateDemo('/api/accounts/gmail', 'DELETE', {});

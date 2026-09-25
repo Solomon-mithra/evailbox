@@ -1,6 +1,7 @@
 'use client';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
+import { RetireNotificationWorker } from './retire-notification-worker';
 import { Toaster } from 'sonner';
 import { WorkspaceSelection, useWorkspaceSelection } from './workspace-selection';
 import { attachSummaryCache } from '@/lib/query-cache';
@@ -25,6 +26,7 @@ export function Providers({ children, demo }: { children: ReactNode; demo: boole
   return (
     <ModeContext.Provider value={demo}>
       <QueryClientProvider client={queryClient}>
+        <RetireNotificationWorker />
         <WorkspaceSelection>{children}</WorkspaceSelection>
         <Toaster position="bottom-right" richColors closeButton />
       </QueryClientProvider>

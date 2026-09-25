@@ -5,8 +5,7 @@ import { db } from './db';
 import { decrypt, encrypt } from './crypto';
 import { fetchEmailPage, refreshAccessToken } from './providers';
 import { classifyEmails } from './classification';
-import { notifyUser } from './notifications';
-/** Resume provider pages independently of paid inference and notification delivery. */
+/** Resume provider pages independently of paid inference. */
 export async function syncMailboxes(
   userId: string,
   accountId?: string,
@@ -170,7 +169,6 @@ export async function syncMailboxes(
 export async function syncUser(userId: string, accountId?: string, deadline = Date.now() + 45000) {
   const sync = await syncMailboxes(userId, accountId, deadline);
   const result = await classifyEmails(userId, { deadline });
-  if (Date.now() < deadline) await notifyUser(userId, deadline);
   return {
     synced: sync.synced,
     classified: result.classified,

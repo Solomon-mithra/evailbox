@@ -11,25 +11,6 @@ export const tagSchema = z
   .strict();
 export const preferencesSchema = z
   .object({
-    browserPush: z.boolean().optional(),
-    dailyDigest: z.boolean().optional(),
-    digestTime: z
-      .string()
-      .regex(/^([01]\d|2[0-3]):[0-5]\d$/)
-      .optional(),
-    timezone: z
-      .string()
-      .max(100)
-      .refine((v) => {
-        try {
-          new Intl.DateTimeFormat('en', { timeZone: v });
-          return true;
-        } catch {
-          return false;
-        }
-      }, 'Choose a valid IANA timezone')
-      .optional(),
-    minConfidence: z.number().int().min(0).max(100).optional(),
     refreshMinutes: z.number().int().min(1).max(60).optional(),
   })
   .strict();

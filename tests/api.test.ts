@@ -26,8 +26,6 @@ vi.mock('@/lib/db', () => ({
   },
 }));
 vi.mock('@/lib/sync', () => ({ syncUser: vi.fn() }));
-vi.mock('@/lib/digest', () => ({ sendDigests: vi.fn() }));
-vi.mock('@/lib/notifications', () => ({ notifyUser: vi.fn() }));
 import { GET, POST, PATCH, DELETE } from '../src/app/api/[...path]/route';
 import { ApiError } from '../src/lib/errors';
 beforeEach(() => {
@@ -95,11 +93,10 @@ describe('API authorization and isolation', () => {
     const response = await PATCH(request('settings', 'PATCH', { minConfidence: 200 }));
     expect(response.status).toBe(400);
   });
-  it('rejects enabling digests when delivery is not configured', async () => {
-    vi.stubEnv('RESEND_API_KEY', '');
+  it('rejects removed digest settings', async () => {
     const response = await PATCH(request('settings', 'PATCH', { dailyDigest: true }));
-    expect(response.status).toBe(503);
-    expect((await response.json()).error.code).toBe('DIGEST_NOT_CONFIGURED');
+    expect(response.status).toBe(400);
+    expect((await response.json()).error.code).toBe('VALIDATION_ERROR');
   });
 });
 
