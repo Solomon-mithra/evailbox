@@ -10,8 +10,11 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllEnvs());
 
-it('publishes only the public homepage in the sitemap', () => {
-  expect(sitemap().map((page) => page.url)).toEqual(['https://evailbox.example/']);
+it('publishes only the public homepage and pricing in the sitemap', () => {
+  expect(sitemap().map((page) => page.url)).toEqual([
+    'https://evailbox.example/',
+    'https://evailbox.example/pricing',
+  ]);
 });
 
 it('keeps private application routes out of crawler access rules', () => {

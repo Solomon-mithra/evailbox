@@ -22,6 +22,12 @@ enum Provider {
 model User {
   id String @id @db.Uuid
   email String @unique
+  displayName String @default("")
+  plan String @default("STARTER")
+  planSource String @default("preview")
+  requestedPlan String?
+  planGrantedAt DateTime?
+  monthlyUsage MonthlyUsage[]
   lastBackgroundSyncAt DateTime?
   workRequested Boolean @default(false)
   workRevision Int @default(0)
@@ -200,4 +206,13 @@ model MailboxSubscription {
   @@index([providerSubscriptionId])
   @@index([renewalRequested,retryAt,expiresAt])
   @@map("mailbox_subscriptions")
+}
+
+model MonthlyUsage {
+  userId String @db.Uuid
+  month DateTime @db.Date
+  emails Int @default(0)
+  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+  @@id([userId,month])
+  @@map("monthly_usage")
 }

@@ -77,3 +77,7 @@ Gmail push and Outlook subscription lifecycle recovery are implemented with encr
 ### Phase 7 implementation evidence — notifications retired
 
 Browser push, in-app priority toasts, daily digests, unsubscribe and their delivery routes, environment variables, `web-push` dependency and Vercel cron schedules are removed. Settings keep only the inbox refresh preference; retired fields are rejected by validation. Returning browsers unsubscribe and unregister the old `/sw.js` worker. Historical preference/delivery tables remain inert rather than being dropped.
+
+### Phase 7 implementation evidence — plans and account management
+
+`/pricing` is public and indexable, lists Starter ($14, 5,000 emails) and Heavy ($24, 10,000) and states that billing and allowances are off. Settings shows profile, trusted plan and source, and UTC-month first-classification usage; users can save a display name and a non-billing plan preference only. `plan`/`planSource` are not writable through the API and are denied to authenticated database clients. `scripts/grant-plan.ts` grants access through application data plus Supabase `app_metadata`, preserving other metadata, and verifies both writes. The owner grant has not run because the hosted database does not yet have the Phase 7 migrations.

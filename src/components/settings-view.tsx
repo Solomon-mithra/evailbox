@@ -5,12 +5,14 @@ import { useWorkspaceSettings, useAction } from '@/hooks/useFetch';
 import { signOut } from '@/hooks/useAuth';
 import { useDemo, useTrustedUser } from './providers';
 import { AccountsView } from './accounts-view';
+import { AccountProfile } from './account-profile';
+import type { PlanId } from '@/lib/plans';
 import { Button } from './ui/button';
 import { ConfirmDialog } from './confirm-dialog';
 import { Skeleton } from './ui/loader';
 import { ErrorState } from './states';
 import { toast } from 'sonner';
-export function SettingsView() {
+export function SettingsView({ suggestedPlan }: { suggestedPlan?: PlanId }) {
   const query = useWorkspaceSettings(),
     mutation = useAction(),
     demo = useDemo(),
@@ -36,6 +38,7 @@ export function SettingsView() {
           <p>Manage your profile, connections, and inbox preferences.</p>
         </div>
       </div>
+      <AccountProfile suggestedPlan={suggestedPlan} />
       <section className="settings-section">
         <AccountsView embedded />
       </section>

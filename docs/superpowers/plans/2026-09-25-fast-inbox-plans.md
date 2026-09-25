@@ -30,7 +30,7 @@
   - Test stale tag/content races, failures/retries, negative-decision caching, latest model predicate, budgets and concurrency cap. Record metadata-only durations.
 - [x] 5. Retire notifications/digests. Verified on the isolated task snapshot: 243 tests, typecheck and lint pass. Historical delivery tables stay inert.
   - Remove service worker push delivery, notification UI/hooks, cron routes/schedules, delivery dependencies and env requirements. Preserve general refresh settings. Tests prove retired endpoints cannot deliver.
-- [ ] 6. Plans, pricing and account management.
+- [x] 6. Plans, pricing and account management. Verified on the isolated task snapshot: 250 tests, typecheck and lint pass. Owner Heavy grant NOT yet executed: hosted Supabase lacks the Phase 7 migrations (see STATUS).
   - Files: src/lib/plans.ts, src/lib/account-management.ts, src/app/pricing/page.tsx, src/components/settings-view.tsx, accounts-view.tsx, navigation, server account endpoints, admin grant script and tests.
   - Starter $14/5k; Heavy $24/10k. Limits and charging remain off. No fake checkout/portal. Display actual trusted access, usage period and profile. Reconnect/disconnect/signout/delete remain safe; clean provider subscriptions and caches.
   - Grant existing verified owner's Heavy access through Supabase admin metadata, preserving unrelated metadata, then verify DB/auth result. No client-supplied plan escalation.

@@ -1,3 +1,7 @@
+## 2026-09-25 — Plans and account management implemented
+
+Pricing page, Settings profile/plan/usage and the administrative grant script are implemented, with billing and limits off. The isolated task snapshot passes 250 tests, typecheck and lint. The owner Heavy grant is pending: `prisma migrate status` shows six Phase 7 migrations unapplied on the hosted Supabase database, and applying them requires owner approval.
+
 ## 2026-09-25 — Notifications and digests retired
 
 Push, digest and unsubscribe delivery paths, settings, environment requirements and schedules are removed; retired settings are rejected. The isolated task snapshot passes 243 tests, typecheck and lint.

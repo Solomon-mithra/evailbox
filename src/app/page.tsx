@@ -86,6 +86,9 @@ export default function HomePage() {
             <a className={styles.textLink} href="#your-control">
               Your control
             </a>
+            <Link className={styles.textLink} href="/pricing">
+              Pricing
+            </Link>
             <Link className={styles.navCta} href="/inbox">
               Open inbox <ArrowUpRight size={16} aria-hidden="true" />
             </Link>
@@ -289,6 +292,7 @@ export default function HomePage() {
         <nav aria-label="Footer navigation">
           <a href="#how-it-works">How it works</a>
           <a href="#your-control">Your control</a>
+          <Link href="/pricing">Pricing</Link>
           <Link href="/inbox">
             Open inbox <ArrowUpRight size={14} aria-hidden="true" />
           </Link>
