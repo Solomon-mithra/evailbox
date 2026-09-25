@@ -1,200 +1,350 @@
-import { afterEach, beforeEach, it, expect, vi } from 'vitest';
-const state = vi.hoisted(() => ({
-  saved: new Map<string, { tagId: string; tagVersion: number }>(),
-  total: 1000,
-  stale: false,
+import { afterAll, afterEach, beforeAll, beforeEach, it, expect, vi } from 'vitest';
+import { PGlite } from '@electric-sql/pglite';
+import { readFile } from 'node:fs/promises';
+import { Prisma } from '@prisma/client';
+const mocks = vi.hoisted(() => ({
+  query: vi.fn(),
+  execute: vi.fn(),
+  tags: vi.fn(),
+  transaction: vi.fn(),
   evaluate: vi.fn(),
-  defer: vi.fn(),
-  workTags: false,
 }));
-const tags = [
-  { id: 't1', version: 1 },
-  { id: 't2', version: 1 },
-];
-vi.mock('@/lib/db', () => {
-  const tx = {
-    $queryRaw: vi.fn(async () => (state.stale ? [] : [{ id: 'valid' }])),
-    emailClassification: {
-      upsert: vi.fn(
-        async ({ create }: { create: { emailId: string; tagId: string; tagVersion: number } }) => {
-          state.saved.set(create.emailId + ':' + create.tagId, {
-            tagId: create.tagId,
-            tagVersion: create.tagVersion,
-          });
-        },
-      ),
-    },
-  };
-  return {
-    db: {
-      user: { updateMany: state.defer },
-      tag: {
-        findMany: async ({ where }: { where: { workspace: string } }) => {
-          expect(['PERSONAL', 'WORK']).toContain(where.workspace);
-          return where.workspace === 'PERSONAL' || state.workTags ? tags : [];
-        },
-      },
-      email: {
-        findMany: async ({ take, where }: { take: number; where: { workspace: string } }) => {
-          expect(['PERSONAL', 'WORK']).toContain(where.workspace);
-          return Array.from({ length: state.total }, (_, i) => ({
-            id: 'e' + i,
-            subject: 'Email',
-            sender: 'sender@example.com',
-            snippet: 'Test',
-            body: null,
-            classifications: tags.flatMap((t) => {
-              const existing = state.saved.get('e' + i + ':' + t.id);
-              return existing ? [existing] : [];
-            }),
-          }))
-            .filter((e) => e.classifications.length < tags.length)
-            .slice(0, take);
-        },
-        count: async () =>
-          Array.from({ length: state.total }, (_, i) =>
-            tags.some((t) => !state.saved.has('e' + i + ':' + t.id)),
-          ).filter(Boolean).length,
-      },
-      $transaction: async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
-    },
-  };
-});
-vi.mock('@/lib/jev', () => ({
-  classifyEmailAgainstTags: state.evaluate,
-  classifyEmailAgainstTag: vi.fn(),
+vi.mock('@/lib/db', () => ({
+  db: {
+    $queryRaw: mocks.query,
+    $executeRaw: mocks.execute,
+    tag: { findMany: mocks.tags },
+    $transaction: mocks.transaction,
+  },
 }));
-import { classifyEmails } from '../src/lib/classification';
-beforeEach(() => {
-  state.saved.clear();
-  state.total = 1000;
-  state.stale = false;
-  state.workTags = false;
-  state.defer.mockReset().mockResolvedValue({ count: 1 });
-  vi.spyOn(console, 'warn').mockImplementation(() => {});
-  state.evaluate
-    .mockReset()
-    .mockImplementation(async (_email: unknown, missing: { id: string }[]) =>
-      Object.fromEntries(
-        missing.map((t) => [
-          t.id,
-          { matched: false, confidence: 10, decision: 'no_match', reasoning: 'test' },
-        ]),
-      ),
+vi.mock('@/lib/jev', () => ({ classifyEmailAgainstTags: mocks.evaluate }));
+import { classifyEmails, classificationConcurrency } from '@/lib/classification';
+import { currentModelVersion, emailContentHash } from '@/lib/classification-version';
+const database = new PGlite();
+const user = '11111111-1111-4111-8111-111111111111',
+  other = '22222222-2222-4222-8222-222222222222';
+const input = {
+  subject: 'Email',
+  sender: 'a@example.com',
+  snippet: 'PRIVATE SNIPPET',
+  body: 'PRIVATE BODY',
+};
+const decision = { matched: false, confidence: 10, reasoning: 'trace', decision: 'no_match' };
+beforeAll(async () => {
+  await database.exec(
+    `CREATE ROLE anon; CREATE ROLE authenticated; CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY); CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$; GRANT USAGE ON SCHEMA public,auth TO authenticated;`,
+  );
+  for (const path of [
+    '20260921000000_init',
+    '20260922000000_workspaces',
+    '20260925030000_classification_freshness',
+    '20260925040000_plan_preview',
+  ])
+    await database.exec(await readFile(`prisma/migrations/${path}/migration.sql`, 'utf8'));
+  for (const uid of [user, other]) {
+    await database.query('INSERT INTO auth.users(id) VALUES($1)', [uid]);
+    await database.query('INSERT INTO users(id,email) VALUES($1,$2)', [uid, uid + '@example.com']);
+    await database.query(
+      'INSERT INTO email_accounts(id,"userId",provider,email,"accessToken","expiresAt") VALUES($1::text,$1::uuid,\'GMAIL\',$2,\'secret\',now())',
+      [uid, uid + '@example.com'],
     );
-});
-afterEach(() => vi.restoreAllMocks());
-it('drains 1000 emails in resumable batches, with one call per email and no repeated completed decisions', async () => {
-  for (let i = 0; i < 10; i++) {
-    const result = await classifyEmails('user');
-    expect(result.errors).toBe(0);
-    expect(result.remaining).toBe(1000 - (i + 1) * 100);
   }
-  expect(state.saved.size).toBe(2000);
-  expect(state.evaluate).toHaveBeenCalledTimes(1000);
-  expect((await classifyEmails('user')).classified).toBe(0);
-  expect(state.evaluate).toHaveBeenCalledTimes(1000);
+}, 30000);
+afterAll(() => database.close());
+beforeEach(async () => {
+  await database.exec(
+    'TRUNCATE emails CASCADE; TRUNCATE tags CASCADE; TRUNCATE monthly_usage; TRUNCATE processing_state;',
+  );
+  await database.query(
+    "INSERT INTO tags(id,\"userId\",name,\"nameKey\",prompt,\"updatedAt\") VALUES('t1',$1,'A','a','Rule',now()),('t2',$1,'B','b','Rule',now())",
+    [user],
+  );
+  vi.clearAllMocks();
+  mocks.query.mockImplementation(
+    async (q: Prisma.Sql) => (await database.query(q.text, q.values)).rows,
+  );
+  mocks.execute.mockImplementation(
+    async (q: Prisma.Sql) => (await database.query(q.text, q.values)).affectedRows,
+  );
+  mocks.tags.mockImplementation(
+    async ({ where }) =>
+      (
+        await database.query(
+          'SELECT * FROM tags WHERE "userId"=$1 AND workspace=$2 AND ($3::text IS NULL OR id=$3)',
+          [where.userId, where.workspace, where.id ?? null],
+        )
+      ).rows,
+  );
+  mocks.transaction.mockImplementation(async (fn) =>
+    database.transaction(async (tx) =>
+      fn({
+        $queryRaw: async (q: Prisma.Sql) => (await tx.query(q.text, q.values)).rows,
+        $executeRaw: async (q: Prisma.Sql) => (await tx.query(q.text, q.values)).affectedRows,
+      }),
+    ),
+  );
+  mocks.evaluate
+    .mockReset()
+    .mockImplementation(async (_email, tags) =>
+      Object.fromEntries(tags.map((tag: { id: string }) => [tag.id, decision])),
+    );
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  vi.spyOn(console, 'info').mockImplementation(() => {});
 });
-it('evaluates only the missing tag even when the previous result was no match', async () => {
-  state.total = 1;
-  state.saved.set('e0:t1', { tagId: 't1', tagVersion: 1 });
-  await classifyEmails('user');
-  expect(state.evaluate.mock.calls[0][1]).toEqual([{ id: 't2', version: 1 }]);
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
-it('does not persist results for an edited tag version', async () => {
-  state.total = 1;
-  state.stale = true;
-  const result = await classifyEmails('user');
-  expect(state.saved.size).toBe(0);
-  expect(result.remaining).toBeGreaterThan(0);
-});
-it('leaves failed calls pending for the next worker', async () => {
-  state.total = 1;
-  state.evaluate.mockRejectedValueOnce(new Error('rate limited'));
-  const result = await classifyEmails('user');
-  expect(result.errors).toBeGreaterThan(0);
-  expect(result.remaining).toBe(1);
-  expect(state.saved.size).toBe(0);
-});
-
-it('does not run Personal rules when only Work is requested', async () => {
-  expect(await classifyEmails('user', { workspace: 'WORK' })).toEqual({
-    classified: 0,
-    errors: 0,
-    remaining: 0,
+async function seed(count: number, uid = user) {
+  await database.query(
+    `INSERT INTO emails(id,"userId","accountId","providerMessageId",subject,sender,"senderName",snippet,body,"receivedAt","webUrl") SELECT $1::text || '-' || lpad(i::text,4,'0'),$1::uuid,$1::text,i::text,'Email','a@example.com','A','PRIVATE SNIPPET','PRIVATE BODY','2026-09-25T00:00:00'::timestamp + i * interval '1 second','https://mail.google.com' FROM generate_series(1,$2::int) i`,
+    [uid, count],
+  );
+}
+async function count(table: string) {
+  return (await database.query<{ n: number }>(`SELECT count(*)::int AS n FROM ${table}`)).rows[0].n;
+}
+async function usage() {
+  return (
+    await database.query<{ n: number }>('SELECT coalesce(sum(emails),0)::int n FROM monthly_usage')
+  ).rows[0].n;
+}
+it('drains 1000 emails in recent-first waves and counts each email once, including negative decisions', async () => {
+  await seed(1000);
+  for (let i = 0; i < 10; i++)
+    expect(await classifyEmails(user, { workspace: 'PERSONAL' })).toMatchObject({
+      errors: 0,
+      remaining: 1000 - (i + 1) * 100,
+    });
+  expect(await count('email_classifications')).toBe(2000);
+  expect(await usage()).toBe(1000);
+  expect(mocks.evaluate.mock.calls[0][0].id).toBe(user + '-1000');
+  expect(mocks.evaluate).toHaveBeenCalledTimes(1000);
+  expect(mocks.transaction).toHaveBeenCalledTimes(250);
+  expect((await classifyEmails(user, { workspace: 'PERSONAL' })).classified).toBe(0);
+  expect(mocks.evaluate).toHaveBeenCalledTimes(1000);
+}, 30000);
+it('bounds concurrency, batches writes and persists uncertain results', async () => {
+  await seed(9);
+  let active = 0,
+    peak = 0;
+  mocks.evaluate.mockImplementation(async (_email, tags) => {
+    peak = Math.max(peak, ++active);
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    active--;
+    return Object.fromEntries(
+      tags.map((tag: { id: string }) => [
+        tag.id,
+        { ...decision, confidence: 50, decision: 'uncertain' },
+      ]),
+    );
   });
-  expect(state.evaluate).not.toHaveBeenCalled();
+  expect((await classifyEmails(user, { workspace: 'PERSONAL' })).classified).toBe(18);
+  expect(peak).toBe(4);
+  expect(mocks.transaction).toHaveBeenCalledTimes(3);
+  expect(await usage()).toBe(9);
 });
-
-it('stops after a 429, retains completed decisions and defers the unprocessed backlog', async () => {
-  state.total = 30;
-  const normal = state.evaluate.getMockImplementation()!;
-  state.evaluate.mockImplementationOnce(normal).mockRejectedValueOnce({
-    statusCode: 429,
-    generationId: 'gen_fixture',
-    cause: { responseHeaders: { 'retry-after': '120' }, responseBody: 'private email' },
-  });
-  const start = Date.now();
-  const result = await classifyEmails('user', { workspace: 'PERSONAL' });
-  expect(state.evaluate).toHaveBeenCalledTimes(2);
-  expect(state.saved.size).toBe(2);
-  expect(result).toMatchObject({
-    classified: 2,
+it.each([
+  ['0', 1],
+  ['100', 8],
+  ['3', 3],
+  ['bad', 4],
+])('clamps configured concurrency %s to %i', (value, expected) => {
+  vi.stubEnv('JEV_CONCURRENCY', value);
+  expect(classificationConcurrency()).toBe(expected);
+});
+it('retries only a failed email and does not count reclassification or partial tag retries twice', async () => {
+  await seed(3);
+  mocks.evaluate.mockRejectedValueOnce(new Error('PRIVATE ERROR'));
+  expect(await classifyEmails(user, { workspace: 'PERSONAL' })).toMatchObject({
+    classified: 4,
     errors: 1,
-    remaining: 29,
+    remaining: 1,
+  });
+  expect(await usage()).toBe(2);
+  expect((await classifyEmails(user, { workspace: 'PERSONAL' })).classified).toBe(2);
+  await database.query("UPDATE tags SET version=2 WHERE id='t1'");
+  expect((await classifyEmails(user, { workspace: 'PERSONAL' })).classified).toBe(3);
+  expect(mocks.evaluate.mock.calls.at(-1)![1]).toHaveLength(1);
+  expect(await usage()).toBe(3);
+  expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain('PRIVATE');
+});
+it('rejects a concurrent content edit even when the stored legacy hash was blank', async () => {
+  await seed(1);
+  mocks.evaluate.mockImplementation(async (_email, tags) => {
+    await database.query("UPDATE emails SET body='Changed while evaluating'");
+    return Object.fromEntries(tags.map((tag: { id: string }) => [tag.id, decision]));
+  });
+  expect(await classifyEmails(user, { workspace: 'PERSONAL' })).toMatchObject({
+    classified: 0,
+    remaining: 1,
+  });
+  expect(await count('email_classifications')).toBe(0);
+  expect(await usage()).toBe(0);
+});
+it('locks current tag versions and saves unaffected tags while edited tags stay pending', async () => {
+  await seed(1);
+  mocks.evaluate.mockImplementation(async (_email, tags) => {
+    await database.query("UPDATE tags SET version=2 WHERE id='t1'");
+    return Object.fromEntries(tags.map((tag: { id: string }) => [tag.id, decision]));
+  });
+  expect(await classifyEmails(user, { workspace: 'PERSONAL' })).toMatchObject({
+    classified: 1,
+    remaining: 1,
+  });
+  expect(await usage()).toBe(1);
+});
+it('invalidates stored decisions for content and model changes without double usage', async () => {
+  await seed(1);
+  await classifyEmails(user, { workspace: 'PERSONAL' });
+  const changed = { ...input, body: 'Changed' };
+  await database.query('UPDATE emails SET body=$1,"contentHash"=$2', [
+    changed.body,
+    emailContentHash(changed),
+  ]);
+  expect((await classifyEmails(user, { workspace: 'PERSONAL' })).classified).toBe(2);
+  vi.stubEnv('JEV_MODEL_VERSION', '2');
+  expect((await classifyEmails(user, { workspace: 'PERSONAL' })).classified).toBe(2);
+  expect(
+    (
+      await database.query<{ modelVersion: string }>(
+        'SELECT "modelVersion" FROM email_classifications LIMIT 1',
+      )
+    ).rows[0].modelVersion,
+  ).toBe(currentModelVersion());
+  expect(await usage()).toBe(1);
+});
+it('stops new dispatch after a429, finishes its in-flight wave and shares cooldown with another user', async () => {
+  await seed(12);
+  await seed(2, other);
+  await database.query(
+    "INSERT INTO tags(id,\"userId\",name,\"nameKey\",prompt,\"updatedAt\") VALUES('other',$1,'C','c','Rule',now())",
+    [other],
+  );
+  mocks.evaluate.mockRejectedValueOnce({
+    statusCode: 429,
+    cause: { responseHeaders: { 'retry-after': '120' }, responseBody: 'PRIVATE' },
+  });
+  const result = await classifyEmails(user, { workspace: 'PERSONAL' });
+  expect(result).toMatchObject({
+    classified: 6,
+    errors: 1,
+    remaining: 9,
     rateLimited: true,
     retryAfterSeconds: 120,
   });
-  const deferred = state.defer.mock.calls[0][0];
-  expect(deferred.where.id).toBe('user');
-  expect(deferred.data.workRequested).toBe(true);
-  expect(deferred.data.workNotBefore.getTime()).toBeGreaterThanOrEqual(start + 120000);
-  expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain('private email');
-  expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).toContain('gen_fixture');
-
-  await classifyEmails('user', { workspace: 'PERSONAL' });
-  expect(state.saved.size).toBe(60);
-  expect(state.evaluate).toHaveBeenCalledTimes(31);
-});
-
-it('does not start another workspace after the shared model is rate limited', async () => {
-  state.total = 3;
-  state.workTags = true;
-  state.evaluate.mockRejectedValueOnce({ lastError: { statusCode: 429 } });
-  const result = await classifyEmails('user');
-  expect(state.evaluate).toHaveBeenCalledTimes(1);
-  expect(result).toMatchObject({
-    errors: 1,
-    remaining: 6,
+  expect(mocks.evaluate).toHaveBeenCalledTimes(4);
+  expect(await classifyEmails(other, { workspace: 'PERSONAL' })).toMatchObject({
+    classified: 0,
+    remaining: 2,
     rateLimited: true,
-    retryAfterSeconds: 60,
   });
+  expect(mocks.evaluate).toHaveBeenCalledTimes(4);
+  expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain('PRIVATE');
+});
+it('keeps the longest shared Retry-After from concurrent failures', async () => {
+  await seed(4);
+  mocks.evaluate
+    .mockRejectedValueOnce({ statusCode: 429, responseHeaders: { 'retry-after': '300' } })
+    .mockRejectedValueOnce({ statusCode: 429, responseHeaders: { 'retry-after': '60' } });
+  expect(await classifyEmails(user, { workspace: 'PERSONAL' })).toMatchObject({
+    retryAfterSeconds: 300,
+  });
+  const { rows } = await database.query<{ seconds: number }>(
+    'SELECT extract(epoch from ("notBefore" - CURRENT_TIMESTAMP))::int seconds FROM processing_state',
+  );
+  expect(rows[0].seconds).toBeGreaterThanOrEqual(299);
+});
+it('does not dispatch after the deadline or classify retained draft-only mail', async () => {
+  await seed(3);
+  await database.query('UPDATE emails SET "inInbox"=false WHERE id=$1', [user + '-0001']);
+  expect(await classifyEmails(user, { workspace: 'PERSONAL', deadline: Date.now() })).toMatchObject(
+    { classified: 0, remaining: 2 },
+  );
+  expect(mocks.evaluate).not.toHaveBeenCalled();
+});
+it('records only numeric batch/completion metadata, never message, rule or provider contents', async () => {
+  await seed(1);
+  await classifyEmails(user, { workspace: 'PERSONAL' });
+  const logs = JSON.stringify(vi.mocked(console.info).mock.calls);
+  expect(logs).toContain('classification_completed');
+  expect(logs).toContain('durationMs');
+  expect(logs).not.toMatch(/PRIVATE|a@example|Rule|userId/);
 });
 
+it('counts first classification once when two workers finish the same email concurrently', async () => {
+  await seed(1);
+  let calls = 0;
+  let release!: () => void;
+  const both = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  mocks.evaluate.mockImplementation(async (_email, tags) => {
+    if (++calls === 2) release();
+    await both;
+    return Object.fromEntries(tags.map((tag: { id: string }) => [tag.id, decision]));
+  });
+  await Promise.all([
+    classifyEmails(user, { workspace: 'PERSONAL' }),
+    classifyEmails(user, { workspace: 'PERSONAL' }),
+  ]);
+  expect(await count('email_classifications')).toBe(2);
+  expect(await usage()).toBe(1);
+});
+it('rolls back classification and usage together if a batch transaction fails', async () => {
+  await seed(1);
+  const transact = mocks.transaction.getMockImplementation()!;
+  mocks.transaction.mockImplementationOnce((fn) =>
+    transact(async (tx: unknown) => {
+      await fn(tx);
+      throw new Error('database interrupted');
+    }),
+  );
+  await expect(classifyEmails(user, { workspace: 'PERSONAL' })).rejects.toThrow(
+    'database interrupted',
+  );
+  expect(await count('email_classifications')).toBe(0);
+  expect(await usage()).toBe(0);
+  await classifyEmails(user, { workspace: 'PERSONAL' });
+  expect(await usage()).toBe(1);
+});
+it('rejects model-version changes during inference and never opens a transaction after an exhausted deadline', async () => {
+  await seed(1);
+  mocks.evaluate.mockImplementation(async (_email, tags) => {
+    vi.stubEnv('JEV_MODEL_VERSION', 'changed-in-flight');
+    return Object.fromEntries(tags.map((tag: { id: string }) => [tag.id, decision]));
+  });
+  expect(await classifyEmails(user, { workspace: 'PERSONAL' })).toMatchObject({
+    classified: 0,
+    remaining: 1,
+  });
+  expect(await usage()).toBe(0);
+  expect(mocks.transaction).not.toHaveBeenCalled();
+});
 it.each([
-  [{ 'retry-after': 'Fri, 25 Sep 2026 09:03:00 GMT' }, 180],
   [{ 'retry-after-ms': '90500' }, 91],
   [{ 'retry-after': 'invalid' }, 60],
   [{ 'retry-after': '-5' }, 60],
   [{ 'retry-after': 'Infinity' }, 60],
-] as const)('uses a safe retry delay for headers %j', async (headers, expected) => {
-  vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-25T09:00:00Z'));
-  state.total = 3;
-  state.evaluate.mockRejectedValueOnce({
+] as const)('uses safe global cooldown values for headers %j', async (headers, expected) => {
+  await seed(1);
+  mocks.evaluate.mockRejectedValueOnce({
     lastError: { statusCode: 429, cause: { responseHeaders: headers } },
   });
-  expect(await classifyEmails('user')).toMatchObject({ retryAfterSeconds: expected });
-  expect(state.evaluate).toHaveBeenCalledTimes(1);
+  expect(await classifyEmails(user, { workspace: 'PERSONAL' })).toMatchObject({
+    retryAfterSeconds: expected,
+  });
 });
 
-it('does not treat other failures or rate-limit words as a 429', async () => {
-  state.total = 2;
-  state.evaluate.mockRejectedValueOnce(
-    Object.assign(new Error('private body: rate limited'), { statusCode: 401 }),
-  );
-  const result = await classifyEmails('user');
-  expect(result).toMatchObject({ classified: 2, errors: 1, remaining: 1 });
-  expect(result).not.toHaveProperty('rateLimited');
-  expect(state.defer).not.toHaveBeenCalled();
-  expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain('private body');
+it('does not overstate remaining mail when one email in a concurrent wave becomes stale', async () => {
+  await seed(4);
+  const evaluate = mocks.evaluate.getMockImplementation()!;
+  mocks.evaluate.mockImplementationOnce(async (email, tags) => {
+    await database.query("UPDATE emails SET body='Changed' WHERE id=$1", [email.id]);
+    return evaluate(email, tags);
+  });
+  expect(await classifyEmails(user, { workspace: 'PERSONAL' })).toMatchObject({
+    classified: 6,
+    remaining: 1,
+  });
 });

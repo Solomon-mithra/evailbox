@@ -5,6 +5,7 @@ import { db } from './db';
 import { encrypt, decrypt } from './crypto';
 import { ApiError } from './errors';
 import { workspaceIds } from './workspace-selection';
+import { currentModelVersion } from './classification-version';
 import type { EmailSummary, InboxPage, InboxCounts } from '@/types';
 
 const filtersSchema = z.object({
@@ -50,25 +51,30 @@ function decodeCursor(input: Input, userId: string) {
     );
   }
 }
-// Shared by summary filtering and counts: stale tag versions never match.
-const classificationJoin = Prisma.sql`FROM email_classifications c
+// Shared by summary filtering and counts: all three freshness versions must match.
+function classificationJoin() {
+  return Prisma.sql`FROM email_classifications c
   JOIN tags t ON t.id = c."tagId" AND t."userId" = c."userId" AND t.workspace = c.workspace
   WHERE c."emailId" = e.id AND c."userId" = e."userId" AND c.workspace = e.workspace
-    AND c."tagVersion" = t.version`;
-const needsMatch = Prisma.sql`e.handled = false AND e."isRead" = false AND EXISTS (
-  SELECT 1 ${classificationJoin} AND c.matched = true AND t.priority = 'HIGH'
+    AND c."tagVersion" = t.version AND e."contentHash" <> '' AND c."contentHash" = e."contentHash" AND c."modelVersion" = ${currentModelVersion()}`;
+}
+function needsMatch() {
+  return Prisma.sql`e.handled = false AND e."isRead" = false AND EXISTS (
+  SELECT 1 ${classificationJoin()} AND c.matched = true AND t.priority = 'HIGH'
 )`;
+}
 function where(userId: string, input: Input) {
   const conditions = [
+    Prisma.sql`e."inInbox" = true`,
     Prisma.sql`e."userId" = ${userId}::uuid`,
     Prisma.sql`e.workspace = ${input.workspace}::"WorkspaceKind"`,
   ];
   if (input.account) conditions.push(Prisma.sql`e."accountId" = ${input.account}`);
   if (input.tag)
     conditions.push(
-      Prisma.sql`EXISTS (SELECT 1 ${classificationJoin} AND c.matched = true AND c."tagId" = ${input.tag})`,
+      Prisma.sql`EXISTS (SELECT 1 ${classificationJoin()} AND c.matched = true AND c."tagId" = ${input.tag})`,
     );
-  if (input.needs === '1') conditions.push(needsMatch);
+  if (input.needs === '1') conditions.push(needsMatch());
   if (input.range !== 'all')
     conditions.push(
       Prisma.sql`e."receivedAt" >= ${new Date(Date.now() - (input.range === 'week' ? 7 : 30) * 86400000).toISOString()}::timestamp`,
@@ -96,7 +102,7 @@ export async function getInbox(user: { id: string }, params: URLSearchParams): P
         'id', c.id, 'tagId', c."tagId", 'tagVersion', c."tagVersion", 'matched', c.matched,
         'confidence', c.confidence, 'reasoning', c.reasoning, 'decision', c.decision,
         'tag', jsonb_build_object('id', t.id, 'name', t.name, 'priority', t.priority, 'version', t.version)
-      ) ORDER BY c.id) ${classificationJoin}), '[]'::jsonb) AS classifications
+      ) ORDER BY c.id) ${classificationJoin()}), '[]'::jsonb) AS classifications
     FROM emails e WHERE ${where(user.id, input)}
       ${cursor ? Prisma.sql`AND (e."receivedAt", e.id) < (${cursor.receivedAt}::timestamp, ${cursor.id})` : Prisma.empty}
     ORDER BY e."receivedAt" DESC, e.id DESC LIMIT 51
@@ -136,11 +142,13 @@ export async function getInboxCounts(
   const rows = await db.$queryRaw<InboxCounts[]>(Prisma.sql`
     SELECT
       (SELECT count(*)::int FROM emails e WHERE ${where(user.id, input)}) AS total,
-      (SELECT count(*)::int FROM emails e WHERE ${where(user.id, base)} AND ${needsMatch}) AS "needsTotal",
+      (SELECT count(*)::int FROM emails e WHERE ${where(user.id, base)} AND ${needsMatch()}) AS "needsTotal",
       COALESCE((SELECT jsonb_object_agg(counts."tagId", counts.n) FROM (
         SELECT c."tagId", count(*)::int AS n FROM email_classifications c
         JOIN tags t ON t.id = c."tagId" AND t."userId" = c."userId" AND t.workspace = c.workspace
-        WHERE c."userId" = ${user.id}::uuid AND c.workspace = ${input.workspace}::"WorkspaceKind"
+        JOIN emails e ON e.id = c."emailId" AND e."userId" = c."userId" AND e.workspace = c.workspace
+        WHERE e."inInbox" = true AND e."contentHash" <> '' AND c."contentHash" = e."contentHash" AND c."modelVersion" = ${currentModelVersion()}
+          AND c."userId" = ${user.id}::uuid AND c.workspace = ${input.workspace}::"WorkspaceKind"
           AND c.matched = true AND c."tagVersion" = t.version GROUP BY c."tagId"
       ) counts), '{}'::jsonb) AS "tagCounts"
   `);

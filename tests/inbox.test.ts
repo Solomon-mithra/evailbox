@@ -5,6 +5,7 @@ import type { Prisma } from '@prisma/client';
 const mocks = vi.hoisted(() => ({ query: vi.fn() }));
 vi.mock('@/lib/db', () => ({ db: { $queryRaw: mocks.query } }));
 import { getInbox, getInboxCounts } from '@/lib/inbox';
+import { currentModelVersion } from '@/lib/classification-version';
 const database = new PGlite();
 const user = { id: '11111111-1111-4111-8111-111111111111', email: 'a@example.com' };
 const other = { id: '22222222-2222-4222-8222-222222222222', email: 'b@example.com' };
@@ -13,7 +14,11 @@ beforeAll(async () => {
   await database.exec(
     `CREATE ROLE anon; CREATE ROLE authenticated; CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY); CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$; GRANT USAGE ON SCHEMA public,auth TO authenticated;`,
   );
-  for (const path of ['20260921000000_init', '20260922000000_workspaces'])
+  for (const path of [
+    '20260921000000_init',
+    '20260922000000_workspaces',
+    '20260925030000_classification_freshness',
+  ])
     await database.exec(await readFile(`prisma/migrations/${path}/migration.sql`, 'utf8'));
   await database.query('INSERT INTO auth.users(id) VALUES ($1),($2)', [user.id, other.id]);
   await database.query('INSERT INTO users(id,email) VALUES ($1,$2),($3,$4)', [
@@ -47,6 +52,11 @@ beforeAll(async () => {
       );
     }
   }
+  await database.query(`UPDATE emails SET "contentHash"='current-hash'`);
+  await database.query(
+    `UPDATE email_classifications SET "contentHash"='current-hash',"modelVersion"=$1`,
+    [currentModelVersion()],
+  );
 }, 30000);
 afterAll(() => database.close());
 beforeEach(() => {
@@ -129,5 +139,44 @@ it('applies date windows and treats wildcard characters as literal search input'
     expect((await getInbox(user, new URLSearchParams({ search: '%' }))).emails).toEqual([]);
   } finally {
     now.mockRestore();
+  }
+});
+
+it('hides retained non-inbox rows and stale content/model/legacy decisions from rows, filters and counts', async () => {
+  await database.exec('BEGIN');
+  try {
+    await database.exec(
+      `UPDATE email_classifications SET "contentHash"='old' WHERE "emailId"='a-054'; UPDATE email_classifications SET "modelVersion"='old' WHERE "emailId"='a-053'; UPDATE emails SET "inInbox"=false WHERE id='a-052'; UPDATE emails SET "contentHash"='' WHERE id='a-051';`,
+    );
+    const page = await getInbox(user, new URLSearchParams());
+    expect(page.emails.find((e) => e.id === 'a-054')?.classifications).toEqual([]);
+    expect(page.emails.find((e) => e.id === 'a-053')?.classifications).toEqual([]);
+    expect(page.emails.find((e) => e.id === 'a-052')).toBeUndefined();
+    expect(page.emails.find((e) => e.id === 'a-051')?.classifications).toEqual([]);
+    expect(await getInboxCounts(user, new URLSearchParams())).toEqual({
+      total: 54,
+      needsTotal: 50,
+      tagCounts: { a: 50 },
+    });
+    expect((await getInbox(user, new URLSearchParams({ tag: 'a' }))).emails).toHaveLength(50);
+  } finally {
+    await database.exec('ROLLBACK');
+  }
+});
+it('invalidates current classifications when configured model revision changes', async () => {
+  vi.stubEnv('JEV_MODEL_VERSION', 'new-model');
+  try {
+    expect(
+      (await getInbox(user, new URLSearchParams())).emails.every(
+        (e) => e.classifications.length === 0,
+      ),
+    ).toBe(true);
+    expect(await getInboxCounts(user, new URLSearchParams())).toEqual({
+      total: 55,
+      needsTotal: 0,
+      tagCounts: {},
+    });
+  } finally {
+    vi.unstubAllEnvs();
   }
 });

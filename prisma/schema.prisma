@@ -99,6 +99,9 @@ model Email {
   userId String @db.Uuid
   accountId String
   lastSeenAt DateTime @default(now())
+  contentHash String @default("")
+  firstClassifiedAt DateTime?
+  inInbox Boolean @default(true)
   providerMessageId String
   subject String
   sender String
@@ -128,6 +131,8 @@ model EmailClassification {
   emailId String
   tagId String
   tagVersion Int
+  contentHash String @default("")
+  modelVersion String @default("")
   matched Boolean
   confidence Float
   decision String
@@ -215,4 +220,9 @@ model MonthlyUsage {
   user User @relation(fields:[userId],references:[id],onDelete:Cascade)
   @@id([userId,month])
   @@map("monthly_usage")
+}
+model ProcessingState {
+  id String @id
+  notBefore DateTime @default(now())
+  @@map("processing_state")
 }

@@ -36,26 +36,46 @@ export function Providers({ children, demo }: { children: ReactNode; demo: boole
 
 const SessionContext = createContext<User | undefined>(undefined);
 export const useSessionIdentity = () => useContext(SessionContext);
-export function SessionIdentity({ user, children }: { user: User; children: ReactNode }) {
-  return <SessionContext.Provider value={user}>{children}</SessionContext.Provider>;
+const CacheVersionContext = createContext<string | undefined>(undefined);
+export function SessionIdentity({
+  user,
+  cacheVersion,
+  children,
+}: {
+  user: User;
+  cacheVersion?: string;
+  children: ReactNode;
+}) {
+  return (
+    <SessionContext.Provider value={user}>
+      <CacheVersionContext.Provider value={cacheVersion}>{children}</CacheVersionContext.Provider>
+    </SessionContext.Provider>
+  );
 }
-const PrivateContext = createContext<{ user?: User; ready: boolean }>({ ready: false });
+const PrivateContext = createContext<{ user?: User; ready: boolean; cacheVersion?: string }>({
+  ready: false,
+});
 export const usePrivateCache = () => useContext(PrivateContext);
 export const useTrustedUser = () => usePrivateCache().user;
 export function PrivateWorkspace({ user, children }: { user: User; children: ReactNode }) {
   const client = useQueryClient();
+  const cacheVersion = useContext(CacheVersionContext);
   const demo = useDemo();
   const { workspace } = useWorkspaceSelection();
   const [readyScope, setReadyScope] = useState('');
   const [revision, setRevision] = useState(0);
   const [signedOut, setSignedOut] = useState(false);
-  const scope = `${user.id}:${workspace}:${revision}`;
+  const scope = `${user.id}:${workspace}:${cacheVersion}:${revision}`;
   useEffect(() => {
     if (demo || signedOut) return;
-    const cache = attachSummaryCache(client, { userId: user.id, workspace }, (event) => {
-      if (event.reason === 'disconnect') setRevision((value) => value + 1);
-      else setSignedOut(true);
-    });
+    const cache = attachSummaryCache(
+      client,
+      { userId: user.id, workspace, cacheVersion },
+      (event) => {
+        if (event.reason === 'disconnect') setRevision((value) => value + 1);
+        else setSignedOut(true);
+      },
+    );
     let mounted = true;
     void cache.ready.then(() => {
       if (mounted) setReadyScope(scope);
@@ -64,7 +84,7 @@ export function PrivateWorkspace({ user, children }: { user: User; children: Rea
       mounted = false;
       cache.stop();
     };
-  }, [client, demo, user.id, workspace, scope, signedOut]);
+  }, [client, demo, user.id, workspace, scope, signedOut, cacheVersion]);
   if (signedOut)
     return (
       <main className="auth-loading">
@@ -73,7 +93,7 @@ export function PrivateWorkspace({ user, children }: { user: User; children: Rea
       </main>
     );
   return (
-    <PrivateContext.Provider value={{ user, ready: demo || readyScope === scope }}>
+    <PrivateContext.Provider value={{ user, ready: demo || readyScope === scope, cacheVersion }}>
       <div key={scope} style={{ display: 'contents' }}>
         {children}
       </div>

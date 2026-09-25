@@ -177,3 +177,24 @@ it('can resume mailbox imports without invoking AI classification', async () => 
   expect(await syncMailboxes('u')).toMatchObject({ synced: 0, errors: 0, pending: false });
   expect(fixture.classify).not.toHaveBeenCalled();
 });
+
+it('hashes the actual bounded classification input when importing messages', async () => {
+  const message = {
+    providerMessageId: 'p1',
+    subject: 'Hello',
+    sender: 'a@example.com',
+    senderName: 'A',
+    snippet: 'Short',
+    body: 'content',
+    receivedAt: new Date(),
+    isRead: false,
+    webUrl: 'https://mail.google.com',
+  };
+  fixture.fetch.mockResolvedValueOnce({ hasMore: false, cursor: 'next', messages: [message] });
+  await syncMailboxes('u');
+  const { emailContentHash } = await import('../src/lib/classification-version');
+  const row = fixture.upsert.mock.calls[0][0];
+  expect(row.create.contentHash).toBe(emailContentHash(message));
+  expect(row.update.contentHash).toBe(row.create.contentHash);
+  expect(row.update.inInbox).toBe(true);
+});

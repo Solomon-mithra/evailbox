@@ -5,6 +5,7 @@ import { db } from './db';
 import { decrypt, encrypt } from './crypto';
 import { fetchEmailPage, refreshAccessToken } from './providers';
 import { classifyEmails } from './classification';
+import { emailContentHash } from './classification-version';
 /** Resume provider pages independently of paid inference. */
 export async function syncMailboxes(
   userId: string,
@@ -84,6 +85,7 @@ export async function syncMailboxes(
             >`SELECT clock_timestamp() AS "observedAt"`;
             if (result.reset) rescanStartedAt = observedAt;
             for (const message of result.messages) {
+              const contentHash = emailContentHash(message);
               await tx.email.upsert({
                 where: {
                   accountId_providerMessageId: {
@@ -96,9 +98,11 @@ export async function syncMailboxes(
                   workspace: account.workspace,
                   accountId: account.id,
                   ...message,
+                  contentHash,
+                  inInbox: true,
                   lastSeenAt: observedAt,
                 },
-                update: { ...message, lastSeenAt: observedAt },
+                update: { ...message, contentHash, inInbox: true, lastSeenAt: observedAt },
               });
             }
             if (result.deletedIds?.length)

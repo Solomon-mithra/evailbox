@@ -1,3 +1,7 @@
+## 2026-09-25 — Classification throughput and freshness implemented
+
+Bounded concurrent recent-first classification, guarded batch saves, content/tag/model freshness and metadata-only metrics are implemented. Integration review fixed the remaining-work count overstating a wave with one stale email. The isolated task snapshot passes 265 tests, typecheck and lint.
+
 ## 2026-09-25 — Plans and account management implemented
 
 Pricing page, Settings profile/plan/usage and the administrative grant script are implemented, with billing and limits off. The isolated task snapshot passes 250 tests, typecheck and lint. The owner Heavy grant is pending: `prisma migrate status` shows six Phase 7 migrations unapplied on the hosted Supabase database, and applying them requires owner approval.

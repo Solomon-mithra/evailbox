@@ -4,6 +4,7 @@ import type { PersistedClient } from '@tanstack/react-query-persist-client';
 import {
   createSummaryPersister,
   cacheKey,
+  cacheBuster,
   sanitizeCache,
   attachSummaryCache,
   clearPrivateCache,
@@ -32,7 +33,7 @@ const sample = {
   nextCursor: null,
 };
 function state(client: QueryClient): PersistedClient {
-  return { timestamp: Date.now(), buster: 'inbox-v1', clientState: dehydrate(client) };
+  return { timestamp: Date.now(), buster: cacheBuster(scope), clientState: dehydrate(client) };
 }
 beforeEach(() => {
   saved = new Map();
@@ -159,8 +160,26 @@ it('retains the last successful summary snapshot after a background network fail
   query.setState({ status: 'error', error: new Error('Offline') });
   const persisted = {
     timestamp: Date.now(),
-    buster: 'inbox-v1',
+    buster: cacheBuster(scope),
     clientState: dehydrate(client, { shouldDehydrateQuery: () => true }),
   };
   expect(sanitizeCache(persisted, scope)?.clientState.queries[0]?.state.data).toEqual(sample);
+});
+
+it('rejects persisted decisions from another server-provided model/policy revision', async () => {
+  const client = new QueryClient();
+  client.setQueryData(
+    ['private', 'alice', 'PERSONAL', 'inbox', { cacheVersion: 'model-1' }],
+    sample,
+  );
+  const oldScope = { ...scope, cacheVersion: 'model-1' };
+  const persister = createSummaryPersister(oldScope, storage);
+  const value = state(client);
+  const { cacheBuster } = await import('@/lib/query-cache');
+  value.buster = cacheBuster(oldScope);
+  await persister.persistClient(value);
+  expect((await persister.restoreClient())?.clientState.queries).toHaveLength(1);
+  expect(
+    await createSummaryPersister({ ...scope, cacheVersion: 'model-2' }, storage).restoreClient(),
+  ).toBeUndefined();
 });

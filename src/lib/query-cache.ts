@@ -9,11 +9,14 @@ import { z } from 'zod';
 import { workspaceIds, type WorkspaceId } from './workspace-selection';
 
 export const SUMMARY_MAX_AGE = 24 * 60 * 60 * 1000;
-const buster = 'inbox-v1';
+const buster = 'inbox-v2';
+export const cacheBuster = (scope: CacheScope) =>
+  JSON.stringify([buster, scope.cacheVersion ?? 'default']);
 const prefix = 'evailbox-summary-v1:';
 export interface CacheScope {
   userId: string;
   workspace: WorkspaceId;
+  cacheVersion?: string;
 }
 export interface CacheStorage {
   get(key: string): Promise<unknown>;
@@ -68,6 +71,7 @@ const keySchema = z.tuple([
   z.literal('inbox'),
   z
     .object({
+      cacheVersion: z.string().max(1000).optional(),
       search: z.string().max(200).optional(),
       tag: z.string().max(100).optional(),
       account: z.string().max(100).optional(),
@@ -79,7 +83,7 @@ const keySchema = z.tuple([
 ]);
 const envelope = z.object({
   timestamp: z.number(),
-  buster: z.literal(buster),
+  buster: z.string(),
   clientState: z.object({ queries: z.array(z.unknown()) }),
 });
 const querySchema = z.object({
@@ -94,6 +98,7 @@ export function sanitizeCache(value: unknown, scope: CacheScope): PersistedClien
   const parsed = envelope.safeParse(value);
   if (
     !parsed.success ||
+    parsed.data.buster !== cacheBuster(scope) ||
     Date.now() - parsed.data.timestamp > SUMMARY_MAX_AGE ||
     parsed.data.timestamp > Date.now() + 60000
   )
@@ -106,6 +111,7 @@ export function sanitizeCache(value: unknown, scope: CacheScope): PersistedClien
       if (
         queryKey[1] !== scope.userId ||
         queryKey[2] !== scope.workspace ||
+        queryKey[4].cacheVersion !== scope.cacheVersion ||
         Date.now() - state.dataUpdatedAt > SUMMARY_MAX_AGE ||
         state.dataUpdatedAt > Date.now() + 60000
       )
@@ -134,7 +140,11 @@ export function sanitizeCache(value: unknown, scope: CacheScope): PersistedClien
     })
     .sort((a, b) => b.state.dataUpdatedAt - a.state.dataUpdatedAt)
     .slice(0, 8);
-  return { timestamp: parsed.data.timestamp, buster, clientState: { mutations: [], queries } };
+  return {
+    timestamp: parsed.data.timestamp,
+    buster: cacheBuster(scope),
+    clientState: { mutations: [], queries },
+  };
 }
 
 export function createSummaryPersister(
@@ -228,7 +238,7 @@ export function attachSummaryCache(
   const options = {
     queryClient: client,
     persister,
-    buster,
+    buster: cacheBuster(scope),
     maxAge: SUMMARY_MAX_AGE,
     dehydrateOptions: {
       shouldDehydrateMutation: () => false,

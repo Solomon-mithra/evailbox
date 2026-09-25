@@ -81,3 +81,7 @@ Browser push, in-app priority toasts, daily digests, unsubscribe and their deliv
 ### Phase 7 implementation evidence — plans and account management
 
 `/pricing` is public and indexable, lists Starter ($14, 5,000 emails) and Heavy ($24, 10,000) and states that billing and allowances are off. Settings shows profile, trusted plan and source, and UTC-month first-classification usage; users can save a display name and a non-billing plan preference only. `plan`/`planSource` are not writable through the API and are denied to authenticated database clients. `scripts/grant-plan.ts` grants access through application data plus Supabase `app_metadata`, preserving other metadata, and verifies both writes. The owner grant has not run because the hosted database does not yet have the Phase 7 migrations.
+
+### Phase 7 implementation evidence — classification throughput and freshness
+
+Classification evaluates recent mail first in bounded concurrent waves, stops starting requests after a 429 and shares the Jev cooldown. Each wave saves in one transaction that locks tags and emails and rejects stale tag versions, changed content hashes, archived rows or a changed model version. Decisions carry content hash and model/policy version; inbox reads, counts and persisted browser summaries ignore decisions from another version, so a model change invalidates results without new mail. First classifications increment UTC-month usage. Batch and completion metrics record durations and counts only.

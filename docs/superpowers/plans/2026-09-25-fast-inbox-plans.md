@@ -24,7 +24,7 @@
   - Files: src/lib/mailbox-subscriptions.ts, src/lib/providers/webhooks.ts, src/app/api/webhooks/{gmail,outlook}/route.ts, Prisma subscription state, renewal/recovery jobs, tests/mailbox-subscriptions.test.ts.
   - Verify Google's Pub/Sub JWT issuer/audience/service-account identity and exact subscription; validate Graph clientState and subscription identity before requesting scoped work. Handle challenge/lifecycle events and duplicates. Renew watches/subscriptions ahead of expiry and periodically recover incremental deltas.
   - Publish setup documentation for absent live credentials; no fabricated live acceptance.
-- [ ] 4. Classification throughput, freshness and measurements.
+- [x] 4. Classification throughput, freshness and measurements. Verified on the isolated task snapshot: 265 tests, typecheck and lint pass. Fixed a remaining-count overstatement when one email in a concurrent wave went stale.
   - Files: src/lib/classification.ts, src/lib/classification-version.ts, src/lib/sync.ts, Prisma migration, src/lib/metrics.ts, focused tests.
   - Bounded concurrency prioritizes recent mail; do not start extra requests after 429. Save decisions in batches with locked tag/content/model version checks. Model changes must invalidate old decisions even without new mail.
   - Test stale tag/content races, failures/retries, negative-decision caching, latest model predicate, budgets and concurrency cap. Record metadata-only durations.

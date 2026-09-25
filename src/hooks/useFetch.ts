@@ -27,13 +27,19 @@ function paramsFor(filters: Filters) {
 }
 function usePrivateQuery<T>(kind: string, path: string, filters: Filters, sample: () => T) {
   const demo = useDemo();
-  const { user, ready } = usePrivateCache();
+  const { user, ready, cacheVersion } = usePrivateCache();
   const client = useQueryClient();
   const { workspace } = useWorkspaceSelection();
   const { page: _page, ...safeFilters } = filters;
   void _page;
   return useQuery({
-    queryKey: ['private', user?.id, workspace, kind, safeFilters],
+    queryKey: [
+      'private',
+      user?.id,
+      workspace,
+      kind,
+      kind === 'inbox' ? { ...safeFilters, cacheVersion } : safeFilters,
+    ],
     gcTime: kind === 'inbox' ? SUMMARY_MAX_AGE : 5 * 60000,
     enabled: !!user && ready,
     queryFn: () =>

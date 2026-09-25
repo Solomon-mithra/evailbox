@@ -2,6 +2,7 @@ import 'server-only';
 import { experimental_evaluate as evaluate, type Experimental_EvaluationQuestion } from 'ai';
 import { createGateway } from '@ai-sdk/gateway';
 import { z } from 'zod';
+import { boundedEmailInput, currentModelId } from './classification-version';
 
 export type EmailInput = { subject: string; sender: string; snippet: string; body: string | null };
 export type TagInput = { name: string; prompt: string; keywords: string[]; senders: string[] };
@@ -65,15 +66,10 @@ async function evaluateQuestions(
     ]),
   );
   const result = await evaluate({
-    model: gateway.evaluation('typesafe-ai/jev'),
+    model: gateway.evaluation(currentModelId()),
     // The email is sent once. Tag criteria are isolated in each question's instructions.
     state: {
-      email: {
-        subject: email.subject.slice(0, 2000),
-        sender: email.sender.slice(0, 1000),
-        snippet: email.snippet.slice(0, 2000),
-        body: email.body?.slice(0, 24000) ?? null,
-      },
+      email: boundedEmailInput(email),
     },
     questions,
     // Failed evaluations stay pending for a later worker. An in-request retry can
