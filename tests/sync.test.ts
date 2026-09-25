@@ -229,3 +229,24 @@ it('retains disappeared messages with reply drafts but removes other message row
     },
   });
 });
+it('stores the content hash of the full message but never persists its body', async () => {
+  const message = {
+    providerMessageId: 'p2',
+    subject: 'Offer',
+    sender: 'hr@example.com',
+    senderName: 'HR',
+    snippet: 'Preview',
+    body: 'PRIVATE FULL BODY',
+    receivedAt: new Date(),
+    isRead: false,
+    webUrl: 'https://mail.google.com',
+  };
+  fixture.fetch.mockResolvedValueOnce({ hasMore: false, cursor: 'next', messages: [message] });
+  await syncMailboxes('u');
+  const { emailContentHash } = await import('../src/lib/classification-version');
+  const row = fixture.upsert.mock.calls[0][0];
+  expect(row.create.contentHash).toBe(emailContentHash(message));
+  expect(row.create).not.toHaveProperty('body');
+  expect(row.update).not.toHaveProperty('body');
+  expect(JSON.stringify(row)).not.toContain('PRIVATE FULL BODY');
+});

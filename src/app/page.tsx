@@ -40,7 +40,7 @@ const faqs = [
   {
     question: 'What happens to my email data?',
     answer:
-      'evailbox stores synced email content to build your workspace and sends a limited email sample and your tag rules to an external AI service for matching. Replies and mailbox actions happen only when you request them. You can disconnect an account to remove its synced data, or delete your evailbox account in Settings.',
+      'evailbox stores email summaries (subject, sender and a short preview) to build your workspace; full message bodies are read from your provider when needed and not stored. A limited email sample and your tag rules are sent to an external AI service for matching. Replies and mailbox actions happen only when you request them. You can disconnect an account to remove its synced data, or delete your evailbox account in Settings.',
   },
   {
     question: 'Will it always get every match right?',

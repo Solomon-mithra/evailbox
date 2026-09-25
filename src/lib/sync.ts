@@ -86,7 +86,10 @@ export async function syncMailboxes(
             >`SELECT clock_timestamp() AS "observedAt"`;
             if (result.reset) rescanStartedAt = observedAt;
             for (const message of result.messages) {
+              // Hash the full message for freshness checks; the body itself is never stored.
               const contentHash = emailContentHash(message);
+              const { body: _body, ...stored } = message;
+              void _body;
               await tx.email.upsert({
                 where: {
                   accountId_providerMessageId: {
@@ -98,12 +101,12 @@ export async function syncMailboxes(
                   userId,
                   workspace: account.workspace,
                   accountId: account.id,
-                  ...message,
+                  ...stored,
                   contentHash,
                   inInbox: true,
                   lastSeenAt: observedAt,
                 },
-                update: { ...message, contentHash, inInbox: true, lastSeenAt: observedAt },
+                update: { ...stored, contentHash, inInbox: true, lastSeenAt: observedAt },
               });
             }
             // Retain the source and its account relation while an editable/sent draft exists.

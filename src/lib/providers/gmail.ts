@@ -63,6 +63,10 @@ function plainText(part: MimePart, depth = 0): string {
     .join('\n')
     .slice(0, 64000);
 }
+/** Same bounded text/plain extraction that sync used; null when no plain-text part exists. */
+export function gmailPlainText(payload: unknown): string | null {
+  return plainText(partSchema.parse(payload)) || null;
+}
 function normalize(raw: unknown): ProviderEmail | null {
   const message = messageSchema.parse(raw);
   if (

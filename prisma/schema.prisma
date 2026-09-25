@@ -110,7 +110,6 @@ model Email {
   sender String
   senderName String
   snippet String
-  body String?
   receivedAt DateTime
   isRead Boolean @default(false)
   handled Boolean @default(false)

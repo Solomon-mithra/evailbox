@@ -21,7 +21,7 @@ The public homepage includes illustrative examples. Deployments running in demo 
 
 ## Email data and AI
 
-evailbox stores synced email content for the workspace. A bounded email sample and tag criteria are sent to an external AI service for matching. Email content therefore leaves the provider for storage and matching.
+evailbox stores email summaries (subject, sender, a short preview and dates) for the workspace. Full message bodies are read from the provider when you open a message or when it is classified, and are not stored. A bounded email sample and tag criteria are sent to an external AI service for matching, so email content leaves the provider for matching.
 
 ## Plans
 

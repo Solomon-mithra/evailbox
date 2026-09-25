@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   tags: vi.fn(),
   transaction: vi.fn(),
   evaluate: vi.fn(),
+  fetchText: vi.fn(),
+  credentials: vi.fn(),
 }));
 vi.mock('@/lib/db', () => ({
   db: {
@@ -18,6 +20,8 @@ vi.mock('@/lib/db', () => ({
   },
 }));
 vi.mock('@/lib/jev', () => ({ classifyEmailAgainstTags: mocks.evaluate }));
+vi.mock('@/lib/providers/content', () => ({ fetchMessageText: mocks.fetchText }));
+vi.mock('@/lib/providers/credentials', () => ({ withAccountCredentials: mocks.credentials }));
 import { classifyEmails, classificationConcurrency } from '@/lib/classification';
 import { currentModelVersion, emailContentHash } from '@/lib/classification-version';
 const database = new PGlite();
@@ -39,6 +43,7 @@ beforeAll(async () => {
     '20260922000000_workspaces',
     '20260925030000_classification_freshness',
     '20260925040000_plan_preview',
+    '20260926000000_drop_email_body',
   ])
     await database.exec(await readFile(`prisma/migrations/${path}/migration.sql`, 'utf8'));
   for (const uid of [user, other]) {
@@ -88,6 +93,12 @@ beforeEach(async () => {
     .mockImplementation(async (_email, tags) =>
       Object.fromEntries(tags.map((tag: { id: string }) => [tag.id, decision])),
     );
+  mocks.fetchText.mockReset().mockResolvedValue('PRIVATE BODY');
+  mocks.credentials
+    .mockReset()
+    .mockImplementation(async (_user, _workspace, _account, operation) =>
+      operation({ provider: 'GMAIL' }, 'token'),
+    );
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   vi.spyOn(console, 'info').mockImplementation(() => {});
 });
@@ -97,8 +108,8 @@ afterEach(() => {
 });
 async function seed(count: number, uid = user) {
   await database.query(
-    `INSERT INTO emails(id,"userId","accountId","providerMessageId",subject,sender,"senderName",snippet,body,"receivedAt","webUrl") SELECT $1::text || '-' || lpad(i::text,4,'0'),$1::uuid,$1::text,i::text,'Email','a@example.com','A','PRIVATE SNIPPET','PRIVATE BODY','2026-09-25T00:00:00'::timestamp + i * interval '1 second','https://mail.google.com' FROM generate_series(1,$2::int) i`,
-    [uid, count],
+    `INSERT INTO emails(id,"userId","accountId","providerMessageId",subject,sender,"senderName",snippet,"contentHash","receivedAt","webUrl") SELECT $1::text || '-' || lpad(i::text,4,'0'),$1::uuid,$1::text,i::text,'Email','a@example.com','A','PRIVATE SNIPPET',$3,'2026-09-25T00:00:00'::timestamp + i * interval '1 second','https://mail.google.com' FROM generate_series(1,$2::int) i`,
+    [uid, count, emailContentHash(input)],
   );
 }
 async function count(table: string) {
@@ -169,10 +180,49 @@ it('retries only a failed email and does not count reclassification or partial t
   expect(await usage()).toBe(3);
   expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain('PRIVATE');
 });
-it('rejects a concurrent content edit even when the stored legacy hash was blank', async () => {
+it('evaluates each email with its body fetched live from the provider', async () => {
+  await seed(1);
+  mocks.fetchText.mockResolvedValue('LIVE PROVIDER BODY');
+  await classifyEmails(user, { workspace: 'PERSONAL' });
+  expect(mocks.fetchText).toHaveBeenCalledWith('GMAIL', 'token', '1');
+  expect(mocks.evaluate.mock.calls[0][0]).toMatchObject({
+    subject: 'Email',
+    sender: 'a@example.com',
+    snippet: 'PRIVATE SNIPPET',
+    body: 'LIVE PROVIDER BODY',
+  });
+});
+it('obtains credentials once per account per run rather than once per email', async () => {
+  await seed(6);
+  await classifyEmails(user, { workspace: 'PERSONAL' });
+  expect(mocks.credentials).toHaveBeenCalledTimes(1);
+  expect(mocks.credentials.mock.calls[0].slice(0, 3)).toEqual([user, 'PERSONAL', user]);
+  expect(mocks.fetchText).toHaveBeenCalledTimes(6);
+});
+it('leaves an email pending without evaluating it when its body cannot be fetched', async () => {
+  await seed(2);
+  mocks.fetchText.mockRejectedValueOnce(new Error('PRIVATE provider failure'));
+  expect(await classifyEmails(user, { workspace: 'PERSONAL' })).toMatchObject({
+    classified: 2,
+    errors: 1,
+    remaining: 1,
+  });
+  expect(mocks.evaluate).toHaveBeenCalledTimes(1);
+  expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain('PRIVATE');
+});
+it('skips emails that sync has not hashed yet', async () => {
+  await seed(1);
+  await database.query(`UPDATE emails SET "contentHash"=''`);
+  expect(await classifyEmails(user, { workspace: 'PERSONAL' })).toMatchObject({
+    classified: 0,
+    remaining: 0,
+  });
+  expect(mocks.fetchText).not.toHaveBeenCalled();
+});
+it('rejects results when sync changes the message during evaluation', async () => {
   await seed(1);
   mocks.evaluate.mockImplementation(async (_email, tags) => {
-    await database.query("UPDATE emails SET body='Changed while evaluating'");
+    await database.query(`UPDATE emails SET "contentHash"='changed-by-sync'`);
     return Object.fromEntries(tags.map((tag: { id: string }) => [tag.id, decision]));
   });
   expect(await classifyEmails(user, { workspace: 'PERSONAL' })).toMatchObject({
@@ -198,10 +248,7 @@ it('invalidates stored decisions for content and model changes without double us
   await seed(1);
   await classifyEmails(user, { workspace: 'PERSONAL' });
   const changed = { ...input, body: 'Changed' };
-  await database.query('UPDATE emails SET body=$1,"contentHash"=$2', [
-    changed.body,
-    emailContentHash(changed),
-  ]);
+  await database.query('UPDATE emails SET "contentHash"=$1', [emailContentHash(changed)]);
   expect((await classifyEmails(user, { workspace: 'PERSONAL' })).classified).toBe(2);
   vi.stubEnv('JEV_MODEL_VERSION', '2');
   expect((await classifyEmails(user, { workspace: 'PERSONAL' })).classified).toBe(2);
@@ -340,7 +387,7 @@ it('does not overstate remaining mail when one email in a concurrent wave become
   await seed(4);
   const evaluate = mocks.evaluate.getMockImplementation()!;
   mocks.evaluate.mockImplementationOnce(async (email, tags) => {
-    await database.query("UPDATE emails SET body='Changed' WHERE id=$1", [email.id]);
+    await database.query(`UPDATE emails SET "contentHash"='changed' WHERE id=$1`, [email.id]);
     return evaluate(email, tags);
   });
   expect(await classifyEmails(user, { workspace: 'PERSONAL' })).toMatchObject({

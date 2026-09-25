@@ -78,3 +78,9 @@ it('deletes all private app state with the Supabase identity', async () => {
   ])
     expect((await pg.query(`SELECT * FROM ${table}`)).rows).toHaveLength(0);
 });
+it('has no server-side column for message bodies', async () => {
+  const columns = await pg.query<{ column_name: string }>(
+    `SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='emails'`,
+  );
+  expect(columns.rows.map((row) => row.column_name)).not.toContain('body');
+});

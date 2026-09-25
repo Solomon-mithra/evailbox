@@ -2,14 +2,14 @@ import 'server-only';
 import { db } from './db';
 import { Prisma, type Tag } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
-import {
-  currentModelVersion,
-  emailContentHash,
-  type ClassificationInput,
-} from './classification-version';
+import { currentModelVersion, type ClassificationInput } from './classification-version';
 import type { Classification } from './jev';
 import { classifyEmailAgainstTags } from './jev';
 import { ApiError } from './errors';
+import { fetchMessageText } from './providers/content';
+import { withAccountCredentials } from './providers/credentials';
+import { withProviderDeadline } from './providers/http';
+import type { Provider } from './providers/types';
 import { workspaceIds, type WorkspaceId } from './workspace-selection';
 type BatchResult = {
   classified: number;
@@ -71,8 +71,10 @@ export function classificationConcurrency() {
   const value = Number(process.env.JEV_CONCURRENCY ?? 4);
   return Number.isFinite(value) ? Math.max(1, Math.min(8, Math.floor(value))) : 4;
 }
-type EmailSnapshot = ClassificationInput & {
+type EmailSnapshot = Omit<ClassificationInput, 'body'> & {
   id: string;
+  accountId: string;
+  providerMessageId: string;
   contentHash: string;
   firstClassifiedAt: Date | null;
   inInbox: boolean;
@@ -96,7 +98,8 @@ function backlogWhere(
   modelVersion: string,
   emailIds?: string[],
 ) {
-  return Prisma.sql`e."userId"=${userId}::uuid AND e.workspace=${workspace}::"WorkspaceKind" AND e."inInbox"=true
+  // Unhashed rows wait for sync; a blank hash can never be recorded as current.
+  return Prisma.sql`e."userId"=${userId}::uuid AND e.workspace=${workspace}::"WorkspaceKind" AND e."inInbox"=true AND e."contentHash"<>''
     ${emailIds ? Prisma.sql`AND e.id IN (${Prisma.join(emailIds.length ? emailIds : [''])})` : Prisma.empty}
     AND EXISTS (SELECT 1 FROM tags t WHERE t."userId"=e."userId" AND t.workspace=e.workspace AND t.id IN (${Prisma.join(tagIds)})
       AND NOT EXISTS (SELECT 1 FROM email_classifications c WHERE c."emailId"=e.id AND c."tagId"=t.id
@@ -150,8 +153,10 @@ async function saveWave(
       const tags = await tx.$queryRaw<{ id: string; version: number }[]>(
         Prisma.sql`SELECT id,version FROM tags WHERE "userId"=${userId}::uuid AND workspace=${workspace}::"WorkspaceKind" AND id IN (${Prisma.join(ids)}) ORDER BY id FOR SHARE`,
       );
-      const emails = await tx.$queryRaw<EmailSnapshot[]>(
-        Prisma.sql`SELECT id,subject,sender,snippet,body,"contentHash","firstClassifiedAt","inInbox" FROM emails WHERE "userId"=${userId}::uuid AND workspace=${workspace}::"WorkspaceKind" AND id IN (${Prisma.join(evaluated.map((item) => item.email.id).sort())}) ORDER BY id FOR UPDATE`,
+      const emails = await tx.$queryRaw<
+        Pick<EmailSnapshot, 'id' | 'contentHash' | 'firstClassifiedAt' | 'inInbox'>[]
+      >(
+        Prisma.sql`SELECT id,"contentHash","firstClassifiedAt","inInbox" FROM emails WHERE "userId"=${userId}::uuid AND workspace=${workspace}::"WorkspaceKind" AND id IN (${Prisma.join(evaluated.map((item) => item.email.id).sort())}) ORDER BY id FOR UPDATE`,
       );
       if (currentModelVersion() !== modelVersion) return none;
       const rows: Prisma.Sql[] = [],
@@ -159,8 +164,8 @@ async function saveWave(
       let firstClassifications = 0;
       for (const item of evaluated) {
         const email = emails.find((row) => row.id === item.email.id);
-        // Hash the locked actual inputs, including legacy rows whose saved hash was blank.
-        if (!email?.inInbox || emailContentHash(email) !== item.hash) continue;
+        // Sync rewrites the hash when the message changes; reject results for older content.
+        if (!email?.inInbox || email.contentHash !== item.hash) continue;
         const valid = item.tags.filter((tag) =>
           tags.some((current) => current.id === tag.id && current.version === tag.version),
         );
@@ -241,15 +246,15 @@ export async function classifyEmails(
   let unsaved = 0;
   if (!retryAfterSeconds && Date.now() + 3000 < deadline) {
     const selection = options.force
-      ? Prisma.sql`e."userId"=${userId}::uuid AND e.workspace=${workspace}::"WorkspaceKind" AND e."inInbox"=true ${options.emailIds ? Prisma.sql`AND e.id IN (${Prisma.join(options.emailIds.length ? options.emailIds : [''])})` : Prisma.empty}`
+      ? Prisma.sql`e."userId"=${userId}::uuid AND e.workspace=${workspace}::"WorkspaceKind" AND e."inInbox"=true AND e."contentHash"<>'' ${options.emailIds ? Prisma.sql`AND e.id IN (${Prisma.join(options.emailIds.length ? options.emailIds : [''])})` : Prisma.empty}`
       : where;
     const emails = await db.$queryRaw<
       EmailSnapshot[]
-    >(Prisma.sql`SELECT e.id,e.subject,e.sender,e.snippet,e.body,e."contentHash",e."firstClassifiedAt",e."inInbox",
+    >(Prisma.sql`SELECT e.id,e."accountId",e."providerMessageId",e.subject,e.sender,e.snippet,e."contentHash",e."firstClassifiedAt",e."inInbox",
       COALESCE((SELECT jsonb_agg(jsonb_build_object('tagId',c."tagId",'tagVersion',c."tagVersion",'contentHash',c."contentHash",'modelVersion',c."modelVersion")) FROM email_classifications c WHERE c."emailId"=e.id AND c."userId"=e."userId" AND c.workspace=e.workspace),'[]'::jsonb) AS classifications
       FROM emails e WHERE ${selection} ORDER BY e."receivedAt" DESC,e.id DESC LIMIT 100`);
     const pending = emails
-      .map((email) => ({ email, hash: emailContentHash(email) }))
+      .map((email) => ({ email, hash: email.contentHash }))
       .map((item) => ({
         ...item,
         tags: tags.filter(
@@ -265,6 +270,22 @@ export async function classifyEmails(
         ),
       }))
       .filter((item) => item.tags.length);
+    // Hold the account lock only while obtaining a fresh token, not during fetches.
+    const credentials = new Map<string, Promise<{ provider: Provider; token: string }>>();
+    const credentialsFor = (accountId: string) => {
+      if (!credentials.has(accountId))
+        credentials.set(
+          accountId,
+          withAccountCredentials(
+            userId,
+            workspace,
+            accountId,
+            async (account, token) => ({ provider: account.provider, token }),
+            deadline,
+          ),
+        );
+      return credentials.get(accountId)!;
+    };
     const concurrency = classificationConcurrency();
     for (let index = 0; index < pending.length; index += concurrency) {
       if (retryAfterSeconds || Date.now() + 3000 >= deadline) break;
@@ -276,8 +297,13 @@ export async function classifyEmails(
         wave.map(async (item) => {
           attempted++;
           try {
+            const { provider, token } = await credentialsFor(item.email.accountId);
+            // Bodies are fetched per evaluation and discarded; they are never stored.
+            const body = await withProviderDeadline(deadline - 2500, () =>
+              fetchMessageText(provider, token, item.email.providerMessageId),
+            );
             const results = await classifyEmailAgainstTags(
-              item.email,
+              { ...item.email, body },
               item.tags,
               80,
               Math.min(20000, deadline - Date.now() - 2500),

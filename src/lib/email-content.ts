@@ -21,7 +21,8 @@ export async function emailContentResponse(
   if (!email) throw new ApiError(404, 'NOT_FOUND', 'Email not found.');
   let message: MessageContent = {
     format: 'text',
-    content: email.body || email.snippet || 'No preview available.',
+    // Bodies are not stored server-side; the preview snippet is the only offline fallback.
+    content: email.snippet || 'No preview available.',
   };
   let fallback = false;
   try {

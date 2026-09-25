@@ -2,6 +2,7 @@ import 'server-only';
 import { z } from 'zod';
 import { authHeaders, requestJson } from './http';
 import type { Provider } from './types';
+import { gmailPlainText } from './gmail';
 
 export type MessageContent = { format: 'html' | 'text'; content: string };
 const maxBytes = 2_000_000;
@@ -100,4 +101,39 @@ export async function fetchMessageContent(
     content = bytes.toString('utf8');
   }
   return { format: part.mimeType === 'text/html' ? 'html' : 'text', content };
+}
+
+/** Classification input fetched on demand; bodies are never persisted server-side. */
+export async function fetchMessageText(
+  provider: Provider,
+  token: string,
+  messageId: string,
+): Promise<string | null> {
+  if (provider === 'OUTLOOK') {
+    const result = z
+      .object({ body: z.object({ contentType: z.string(), content: z.string() }).optional() })
+      .parse(
+        await requestJson(
+          `https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(messageId)}?$select=body`,
+          {
+            headers: {
+              ...authHeaders(token),
+              Prefer: 'outlook.body-content-type="text", IdType="ImmutableId"',
+            },
+          },
+        ),
+      );
+    return result.body?.contentType.toLowerCase() === 'text'
+      ? result.body.content.slice(0, 64000)
+      : null;
+  }
+  const message = z
+    .object({ payload: z.unknown() })
+    .parse(
+      await requestJson(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}?format=full`,
+        { headers: authHeaders(token) },
+      ),
+    );
+  return gmailPlainText(message.payload);
 }

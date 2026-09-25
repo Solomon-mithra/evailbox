@@ -77,12 +77,18 @@ describe('message content authorization and recovery', () => {
     );
     expect(mocks.fetch).toHaveBeenCalledWith('GMAIL', 'new', 'provider-id');
   });
-  it('labels cached text when the provider fails, without exposing its error', async () => {
-    mocks.find.mockResolvedValue({ account, providerMessageId: 'provider-id', body: 'Saved text' });
+  it('falls back to the stored preview snippet when the provider fails, without exposing its error', async () => {
+    mocks.find.mockResolvedValue({
+      account,
+      providerMessageId: 'provider-id',
+      snippet: 'Saved text',
+      body: 'LEGACY BODY',
+    });
     mocks.fetch.mockRejectedValue(new Error('sensitive provider detail'));
     const body = await (await emailContentResponse('owner', 'PERSONAL', 'email', false)).text();
     expect(body).toContain('couldn’t load');
     expect(body).toContain('Saved text');
     expect(body).not.toContain('sensitive provider detail');
+    expect(body).not.toContain('LEGACY BODY');
   });
 });
