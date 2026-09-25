@@ -2,6 +2,7 @@
 import { useWorkspaceSelection } from './workspace-selection';
 import { Navigation } from './navigation';
 import { useDemo, PrivateWorkspace } from './providers';
+import { useInboxRealtime } from '@/hooks/useInboxRealtime';
 import { useAuth } from '@/hooks/useAuth';
 import { Skeleton } from './ui/loader';
 import { Button } from './ui/button';
@@ -20,6 +21,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
         : 'Inbox';
   const demo = useDemo(),
     auth = useAuth();
+  useInboxRealtime(auth.data?.id, workspace, !demo && !!auth.data && !auth.isError);
   if (auth.isLoading)
     return (
       <main className="auth-loading">

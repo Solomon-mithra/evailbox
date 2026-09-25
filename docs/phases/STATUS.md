@@ -1,3 +1,7 @@
+## 2026-09-25 — Async processing implemented
+
+Sync and classification requests now enqueue durable work. Inngest fetches and classifies in separate resumable steps; private Supabase broadcasts invalidate only the signed-in user/workspace. Partial configuration never claims the worker is active. 16 focused job, route and Realtime tests pass, including actual RLS isolation in PGlite. External Inngest activation is intentionally deferred by the user.
+
 # Current Phase 7 work — 2026-09-25
 
 The user approved fast cached inbox reads, asynchronous Inngest processing, provider subscriptions/recovery, versioned concurrent classification, removal of notifications/digests, manual replies, $14 Starter/$24 Heavy plan preview and full account management. Billing/limits remain unenforced. Every task updates the PRD/phase record and is committed independently. See [Phase 7](PHASE_7.md) and [the task plan](../superpowers/plans/2026-09-25-fast-inbox-plans.md).

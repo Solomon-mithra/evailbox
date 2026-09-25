@@ -65,3 +65,7 @@ Track successful OAuth connection rate, completed sync rounds, sync errors and b
 ## Release gates
 
 Local: tests, typecheck, lint, production build and browser journeys pass with recorded commands/results. External: real two-tenant isolation, provider consent/refresh/deltas, Jev evaluation, Inngest delivery, authenticated provider webhooks, renewal/recovery, Realtime isolation, safe reply reconciliation, migration/RLS, deployment configuration and 24-hour monitoring remain pending until explicitly exercised. A deployable demo is not a verified live email service. Production publishing is a separate final approval step in the runbook.
+
+### Phase 7 implementation evidence — asynchronous work
+
+The enqueue-only Sync contract and private Realtime invalidations are implemented. Fetching can proceed during an inference cooldown; classification remains resumable and revision guarded. Live activation is pending user-supplied Inngest keys and endpoint registration.
