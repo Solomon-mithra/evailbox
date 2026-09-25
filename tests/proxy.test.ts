@@ -98,3 +98,11 @@ it.each(['/og/private', '/robots.txt/private', '/index.md/private', '/llms.txt/p
     expect(auth.getUser).toHaveBeenCalledOnce();
   },
 );
+
+it.each(['/pricing', '/api/inbox', '/api/auth/me', '/api/workspace/counts'])(
+  'leaves %s to public rendering or independent API authorization',
+  async (path) => {
+    expect((await proxy(request(path))).headers.get('x-middleware-next')).toBe('1');
+    expect(auth.createClient).not.toHaveBeenCalled();
+  },
+);

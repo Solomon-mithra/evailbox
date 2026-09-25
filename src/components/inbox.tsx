@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { useWorkspace, useAction } from '@/hooks/useFetch';
+import { useInboxWorkspace, useAction } from '@/hooks/useFetch';
 import { useDemo } from './providers';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -75,6 +75,7 @@ export function InboxView() {
     [filters, setFilters] = useState<Filters>({ range: 'all', page: 0 }),
     [selected, setSelected] = useState<Email | null>(null),
     [view, setView] = useState<'overview' | 'all'>('overview');
+  const [cursors, setCursors] = useState<(string | undefined)[]>([undefined]);
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k' && !document.querySelector('[role="dialog"]')) {
@@ -89,7 +90,11 @@ export function InboxView() {
     const t = setTimeout(() => setDebounced(search), 200);
     return () => clearTimeout(t);
   }, [search]);
-  const query = useWorkspace({ ...filters, search: debounced }),
+  const query = useInboxWorkspace({
+      ...filters,
+      cursor: cursors[filters.page ?? 0],
+      search: debounced,
+    }),
     mutation = useAction(),
     demo = useDemo();
   const data = query.data;
@@ -109,8 +114,10 @@ export function InboxView() {
     select(workspace);
     window.history.replaceState(null, '', window.location.pathname);
   }, [data, demo, workspace, select]);
-  const change = (key: keyof Filters, value: string) =>
+  const change = (key: keyof Filters, value: string) => {
+    setCursors([undefined]);
     setFilters((f) => ({ ...f, [key]: value, page: 0 }));
+  };
   const isFiltered = !!(search || filters.tag || filters.account || filters.range !== 'all');
   const emails = data?.emails ?? [];
   const needs =
@@ -140,6 +147,12 @@ export function InboxView() {
     try {
       const r = await mutation.mutateAsync({ path: '/api/sync' });
       if (demo) toast.info('Sample inbox refreshed. No live provider was called.');
+      else if (r.queued)
+        toast.info(
+          r.workerAvailable === false
+            ? 'Sync queued. Background processing setup is pending.'
+            : 'Sync queued. Your inbox will update automatically.',
+        );
       else if (r.errors) toast.warning(`Synced ${r.synced} emails. Some operations need a retry.`);
       else
         toast.success(
@@ -159,7 +172,7 @@ export function InboxView() {
         <Button
           variant="outline"
           onClick={sync}
-          disabled={mutation.isPending || !data?.accounts.length}
+          disabled={mutation.isPending || (query.metadataReady && !data?.accounts.length)}
         >
           <RefreshCw size={16} className={mutation.isPending ? 'spin' : ''} />
           {mutation.isPending ? 'Syncing…' : 'Sync now'}
@@ -205,7 +218,7 @@ export function InboxView() {
             className={view === 'all' ? 'selected' : ''}
             onClick={() => setView('all')}
           >
-            All mail {data && <span>{data.total}</span>}
+            All mail {query.countsReady && data && <span>{data.total}</span>}
           </button>
         </div>
         <div className="last-synced">
@@ -227,6 +240,7 @@ export function InboxView() {
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
+              setCursors([undefined]);
               setFilters((f) => ({ ...f, page: 0 }));
             }}
           />
@@ -236,6 +250,7 @@ export function InboxView() {
               aria-label="Clear search"
               onClick={() => {
                 setSearch('');
+                setCursors([undefined]);
                 setFilters((f) => ({ ...f, page: 0 }));
                 document.querySelector<HTMLInputElement>('[aria-label="Search emails"]')?.focus();
               }}
@@ -285,6 +300,7 @@ export function InboxView() {
               className="clear-filters"
               onClick={() => {
                 setSearch('');
+                setCursors([undefined]);
                 setFilters({ range: 'all', page: 0 });
               }}
             >
@@ -296,12 +312,20 @@ export function InboxView() {
       <div id="inbox-panel" role="tabpanel" aria-labelledby={`inbox-tab-${view}`} tabIndex={0}>
         {query.isLoading ? (
           <Skeleton />
-        ) : query.isError ? (
+        ) : query.isError && !data ? (
           <ErrorState retry={() => void query.refetch()} message={query.error.message} />
         ) : (
           data && (
             <>
-              {!data.accounts.length ? (
+              {(query.metadataError || query.countsError || query.isError) && (
+                <p role="status" className="section-caption">
+                  Some inbox details are unavailable. Your saved mail is still shown.{' '}
+                  <button className="text-link" onClick={() => void query.refetch()}>
+                    Retry
+                  </button>
+                </p>
+              )}
+              {query.metadataReady && !data.accounts.length ? (
                 <EmptyState
                   title="One inbox starts here"
                   message="Connect Gmail or Outlook, then create a tag for what matters to you."
@@ -314,12 +338,14 @@ export function InboxView() {
                     </Button>
                   }
                 />
-              ) : view === 'all' || isFiltered ? (
+              ) : view === 'all' || isFiltered || !query.metadataReady ? (
                 <section className="inbox-section">
                   <div className="section-heading">
                     <h2>
                       {isFiltered ? 'Matching emails' : 'All mail'}
-                      <span className="count">{data.total}</span>
+                      <span className="count">
+                        {query.countsReady ? data.total : emails.length}
+                      </span>
                     </h2>
                   </div>
                   <div className="email-list">
@@ -416,10 +442,11 @@ export function InboxView() {
                   </section>
                 </>
               )}
-              {data.total > data.pageSize && (
+              {(query.nextCursor || data.page > 0) && (
                 <div className="pagination">
                   <span>
-                    Page {data.page + 1} · {data.total} matching emails
+                    Page {data.page + 1}
+                    {query.countsReady ? ` · ${data.total} matching emails` : ''}
                   </span>
                   <Button
                     variant="outline"
@@ -435,8 +462,15 @@ export function InboxView() {
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={(data.page + 1) * data.pageSize >= data.total}
-                    onClick={() => setFilters((f) => ({ ...f, page: (f.page ?? 0) + 1 }))}
+                    disabled={!query.nextCursor || query.isFetching || search !== debounced}
+                    onClick={() => {
+                      if (!query.nextCursor) return;
+                      setCursors((current) => [
+                        ...current.slice(0, data.page + 1),
+                        query.nextCursor!,
+                      ]);
+                      setFilters((f) => ({ ...f, page: (f.page ?? 0) + 1 }));
+                    }}
                   >
                     Next
                     <ChevronRight size={16} />

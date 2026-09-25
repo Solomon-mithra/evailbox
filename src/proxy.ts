@@ -15,7 +15,8 @@ const publicAssets = new Set([
 ]);
 export async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
-  if (publicAssets.has(path)) {
+  // API handlers independently verify auth; avoid a second auth network round-trip.
+  if (publicAssets.has(path) || path === '/pricing' || path.startsWith('/api/')) {
     return NextResponse.next();
   }
   if (path === '/') {

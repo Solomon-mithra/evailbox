@@ -69,6 +69,7 @@ export async function getWorkspace(user: { id: string; email: string }, params: 
       }),
       db.email.findMany({
         where,
+        omit: { body: true },
         include: {
           classifications: {
             include: { tag: { select: { id: true, name: true, priority: true, version: true } } },
@@ -137,5 +138,39 @@ export async function getWorkspace(user: { id: string; email: string }, params: 
     total,
     page: input.page,
     pageSize: 50,
+  };
+}
+
+export const defaultPreferences = {
+  browserPush: false,
+  dailyDigest: false,
+  digestTime: '09:00',
+  timezone: 'UTC',
+  minConfidence: 80,
+  refreshMinutes: 5,
+};
+export async function getWorkspaceSettings(user: { id: string }) {
+  return (
+    (await db.notificationPref.findUnique({ where: { userId: user.id }, select: publicPrefs })) ??
+    defaultPreferences
+  );
+}
+export async function getWorkspaceMetadata(
+  user: { id: string; email: string; workRequested?: boolean },
+  params: URLSearchParams,
+) {
+  const workspace = z.enum(workspaceIds).parse(params.get('workspace') ?? 'PERSONAL');
+  const [tags, accounts] = await Promise.all([
+    db.tag.findMany({ where: { userId: user.id, workspace }, orderBy: { createdAt: 'asc' } }),
+    db.emailAccount.findMany({
+      where: { userId: user.id, workspace },
+      select: publicAccount,
+      orderBy: { createdAt: 'asc' },
+    }),
+  ]);
+  return {
+    user: { id: user.id, email: user.email, workRequested: user.workRequested ?? false },
+    tags,
+    accounts,
   };
 }

@@ -167,3 +167,24 @@ it('renames generated sample copy without changing user-authored rules', () => {
   expect(restored.tags[0].name).toBe('JevInbox demo workspace');
   expect(restored.emails[0].body).toContain('evailbox demo workspace');
 });
+
+it('uses stable summary cursor ordering in demo pagination too', async () => {
+  const { demoInbox } = await import('../src/lib/demo');
+  const source = seedDemo();
+  source.emails = Array.from({ length: 55 }, (_, i) => ({
+    ...source.emails[0],
+    id: String(i).padStart(3, '0'),
+    receivedAt: '2026-09-25T00:00:00.000Z',
+  }));
+  const first = demoInbox(source, {});
+  expect(first.emails.map((e) => e.id)).toEqual(
+    Array.from({ length: 50 }, (_, i) => String(54 - i).padStart(3, '0')),
+  );
+  expect(demoInbox(source, { cursor: first.nextCursor! }).emails.map((e) => e.id)).toEqual([
+    '004',
+    '003',
+    '002',
+    '001',
+    '000',
+  ]);
+});

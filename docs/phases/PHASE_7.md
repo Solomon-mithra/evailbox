@@ -2,17 +2,16 @@
 
 Approved: 2026-09-25. Status: in progress. Implementation follows [the approved plan](../superpowers/plans/2026-09-25-fast-inbox-plans.md).
 
-| Task | Status | Evidence |
-| --- | --- | --- |
-| Baseline checkpoint | Complete | ef7a40f; 165 tests, typecheck and lint pass |
-| Lightweight reads/browser cache | Pending | — |
-| Async Inngest jobs/Realtime | Pending | — |
-| Provider triggers/renewal/recovery | Pending | — |
-| Classification throughput/versioning/metrics | Pending | — |
-| Remove notifications/digests | Pending | — |
-| Pricing/plans/account management/owner grant | Pending | — |
-| Reply/drafts/provider actions | Pending | — |
-| Full integration/browser review | Pending | — |
+| Task                                         | Status   | Evidence                                                                                                                                                                                                                                       |
+| -------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Baseline checkpoint                          | Complete | ef7a40f; 165 tests, typecheck and lint pass                                                                                                                                                                                                    |
+| Lightweight reads/browser cache              | Complete | 195 tests pass on the isolated Task 1 tree (86 focused): PGlite cursor/isolation/read indexes, body-free projection, auth bootstrap, cache privacy/clearing/fallback and usable summary rendering; typecheck/lint pass. No live latency claim. |
+| Async Inngest jobs/Realtime                  | Pending  | —                                                                                                                                                                                                                                              |
+| Provider triggers/renewal/recovery           | Pending  | —                                                                                                                                                                                                                                              |
+| Classification throughput/versioning/metrics | Pending  | —                                                                                                                                                                                                                                              |
+| Remove notifications/digests                 | Pending  | —                                                                                                                                                                                                                                              |
+| Pricing/plans/account management/owner grant | Pending  | —                                                                                                                                                                                                                                              |
+| Reply/drafts/provider actions                | Pending  | —                                                                                                                                                                                                                                              |
+| Full integration/browser review              | Pending  | —                                                                                                                                                                                                                                              |
 
 External activation remains separate from implemented code: Inngest application, authenticated Gmail Pub/Sub delivery, Outlook application and deployed HTTPS callbacks must be configured and verified. Owner Supabase identity has been found and verified; Heavy grant is pending implementation. No new live email has been sent or classified for testing.
-

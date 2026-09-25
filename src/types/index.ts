@@ -39,7 +39,7 @@ export interface Email {
   sender: string;
   senderName: string;
   snippet: string;
-  body: string | null;
+  body?: string | null;
   receivedAt: string;
   isRead: boolean;
   handled: boolean;
@@ -73,4 +73,24 @@ export interface Filters {
   account?: string;
   range?: string;
   page?: number;
+  cursor?: string;
+  needs?: string;
+}
+
+/** Safe inbox representation; full message content lives only in the detail request. */
+export type EmailSummary = Omit<Email, 'body'>;
+export interface InboxPage {
+  emails: EmailSummary[];
+  pageSize: number;
+  nextCursor: string | null;
+}
+export interface InboxCounts {
+  total: number;
+  needsTotal: number;
+  tagCounts: Record<string, number>;
+}
+export interface WorkspaceMetadata {
+  user: User;
+  tags: Tag[];
+  accounts: EmailAccount[];
 }

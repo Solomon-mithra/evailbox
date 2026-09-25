@@ -400,3 +400,30 @@ export function mutateDemo(
     localStorage.setItem(workspaceKey(other), JSON.stringify(sibling));
   }
 }
+
+/** Mirrors the live receivedAt/id cursor order while keeping sample message bodies local. */
+export function demoInbox(source: Workspace, filters: Filters): import('@/types').InboxPage {
+  const anchor: { receivedAt: string; id: string } | undefined = filters.cursor
+    ? JSON.parse(filters.cursor)
+    : undefined;
+  const ordered = source.emails
+    .filter(
+      (email) =>
+        (!anchor ||
+          email.receivedAt < anchor.receivedAt ||
+          (email.receivedAt === anchor.receivedAt && email.id < anchor.id)) &&
+        (filters.needs !== '1' ||
+          (!email.handled &&
+            !email.isRead &&
+            email.classifications.some((c) => c.matched && c.tag.priority === 'HIGH'))),
+    )
+    .sort((a, b) => b.receivedAt.localeCompare(a.receivedAt) || b.id.localeCompare(a.id));
+  const page = filterWorkspace({ ...source, emails: ordered }, { ...filters, page: 0 });
+  const last = page.emails.at(-1);
+  return {
+    emails: page.emails,
+    pageSize: 50,
+    nextCursor:
+      page.total > 50 && last ? JSON.stringify({ receivedAt: last.receivedAt, id: last.id }) : null,
+  };
+}

@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { Inbox, Tags, Layers2, Settings2, LogOut, Menu, X, Plus, ArrowUpRight } from 'lucide-react';
 import { Dialog } from 'radix-ui';
 import { useEffect, useState } from 'react';
-import { useWorkspace } from '@/hooks/useFetch';
+import { useWorkspaceMetadata, useInboxCounts } from '@/hooks/useFetch';
 import { useDemo } from './providers';
 import { signOut } from '@/hooks/useAuth';
 import { toast } from 'sonner';
@@ -22,16 +22,9 @@ const links = [
 function NavigationContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const demo = useDemo();
-  const { data } = useWorkspace();
-  const needs =
-    data?.needsTotal ??
-    data?.emails.filter(
-      (email) =>
-        !email.handled &&
-        !email.isRead &&
-        email.classifications.some((c) => c.matched && c.tag.priority === 'HIGH'),
-    ).length ??
-    0;
+  const { data } = useWorkspaceMetadata();
+  const counts = useInboxCounts();
+  const needs = counts.data?.needsTotal ?? 0;
 
   return (
     <>

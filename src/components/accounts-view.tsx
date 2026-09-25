@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { ProviderLogo } from './provider-logo';
 import { RefreshCw, Plus, ShieldCheck, Unplug, Check } from 'lucide-react';
-import { useWorkspace, useAction } from '@/hooks/useFetch';
+import { useWorkspaceMetadata, useAction } from '@/hooks/useFetch';
 import { useDemo } from './providers';
 import { useWorkspaceSelection } from './workspace-selection';
 import { workspacePath } from '@/lib/workspace-selection';
@@ -16,7 +16,7 @@ import { toast } from 'sonner';
 
 export function AccountsView({ embedded = false }: { embedded?: boolean }) {
   const { workspace, name } = useWorkspaceSelection();
-  const query = useWorkspace(),
+  const query = useWorkspaceMetadata(),
     mutation = useAction(),
     demo = useDemo();
   const [disconnect, setDisconnect] = useState<EmailAccount | null>(null);

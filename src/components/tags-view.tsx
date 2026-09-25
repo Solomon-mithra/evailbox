@@ -16,9 +16,13 @@ import { EmptyState, ErrorState } from './states';
 import type { Tag, Email } from '@/types';
 import { toast } from 'sonner';
 export function TagsView({ tagId }: { tagId?: string }) {
+  return <TagsViewContent key={tagId ?? 'all'} tagId={tagId} />;
+}
+function TagsViewContent({ tagId }: { tagId?: string }) {
   const router = useRouter();
   const [page, setPage] = useState(0);
-  const query = useWorkspace(tagId ? { tag: tagId, page } : {}),
+  const [cursors, setCursors] = useState<(string | undefined)[]>([undefined]);
+  const query = useWorkspace(tagId ? { tag: tagId, page, cursor: cursors[page] } : {}),
     mutation = useAction();
   const [editing, setEditing] = useState<Tag | undefined>(),
     [formOpen, setFormOpen] = useState(false),
@@ -88,9 +92,9 @@ export function TagsView({ tagId }: { tagId?: string }) {
           )}
         </div>
       </div>
-      {query.isLoading ? (
+      {query.isLoading || (!query.metadataReady && !query.metadataError) ? (
         <Skeleton />
-      ) : query.isError ? (
+      ) : query.isError || query.metadataError ? (
         <ErrorState retry={() => void query.refetch()} />
       ) : tagId ? (
         tag ? (
@@ -125,7 +129,7 @@ export function TagsView({ tagId }: { tagId?: string }) {
                 />
               )}
             </div>
-            {(query.data?.total ?? 0) > 50 && (
+            {(query.nextCursor || page > 0) && (
               <div className="pagination">
                 <Button
                   variant="outline"
@@ -137,8 +141,12 @@ export function TagsView({ tagId }: { tagId?: string }) {
                 <span>Page {page + 1}</span>
                 <Button
                   variant="outline"
-                  disabled={(page + 1) * 50 >= (query.data?.total ?? 0)}
-                  onClick={() => setPage((p) => p + 1)}
+                  disabled={!query.nextCursor || query.isFetching}
+                  onClick={() => {
+                    if (!query.nextCursor) return;
+                    setCursors((current) => [...current.slice(0, page + 1), query.nextCursor!]);
+                    setPage((p) => p + 1);
+                  }}
                 >
                   Next
                 </Button>

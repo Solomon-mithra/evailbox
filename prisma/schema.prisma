@@ -110,6 +110,8 @@ model Email {
   @@unique([id,userId])
   @@unique([id,userId,workspace])
   @@index([userId,receivedAt])
+  @@index([userId,workspace,receivedAt(sort: Desc),id(sort: Desc)], map: "emails_inbox_cursor_idx")
+  @@index([userId,workspace,accountId,receivedAt(sort: Desc),id(sort: Desc)], map: "emails_account_cursor_idx")
   @@map("emails")
 }
 model EmailClassification {
@@ -130,6 +132,7 @@ model EmailClassification {
   tag Tag @relation(fields:[tagId,userId,workspace],references:[id,userId,workspace],onDelete:Cascade)
   @@unique([emailId,tagId])
   @@index([userId,matched,confidence])
+  @@index([userId,workspace,tagId,matched,tagVersion,emailId], map: "classifications_workspace_tag_idx")
   @@map("email_classifications")
 }
 model NotificationPref {

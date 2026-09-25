@@ -4,7 +4,14 @@ import { requireUser, supabaseServer, adminAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { route, ok, ApiError, jsonBody } from '@/lib/errors';
 import { tagSchema, preferencesSchema, classifySchema, idSchema } from '@/lib/validation';
-import { getWorkspace, publicAccount, publicPrefs } from '@/lib/workspace';
+import {
+  getWorkspace,
+  getWorkspaceMetadata,
+  getWorkspaceSettings,
+  publicAccount,
+  publicPrefs,
+} from '@/lib/workspace';
+import { getInbox, getInboxCounts } from '@/lib/inbox';
 import { beginConnection, finishConnection } from '@/lib/oauth';
 import {
   requestWork,
@@ -96,6 +103,13 @@ async function dispatch(request: Request) {
       idSchema.parse(path.split('/')[1]),
       url.searchParams.get('images') === '1',
     );
+  if (path === 'inbox' && method === 'GET') return ok(await getInbox(user, url.searchParams));
+  if (path === 'workspace/metadata' && method === 'GET')
+    return ok(await getWorkspaceMetadata(user, url.searchParams));
+  if (path === 'workspace/counts' && method === 'GET')
+    return ok(await getInboxCounts(user, url.searchParams));
+  if (path === 'workspace/settings' && method === 'GET')
+    return ok(await getWorkspaceSettings(user));
   if (path === 'workspace' && method === 'GET')
     return ok(await getWorkspace(user, url.searchParams));
   if (path === 'tags' && method === 'GET')

@@ -8,7 +8,7 @@ import type { Email } from '@/types';
 import { useAction } from '@/hooks/useFetch';
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
-import { useDemo } from './providers';
+import { useDemo, useTrustedUser } from './providers';
 import { api } from '@/lib/api';
 import { useWorkspaceSelection } from './workspace-selection';
 import { workspacePath, type WorkspaceId } from '@/lib/workspace-selection';
@@ -62,10 +62,11 @@ export function EmailDetail({
   const { workspace } = useWorkspaceSelection();
   const mutation = useAction(),
     demo = useDemo();
+  const user = useTrustedUser();
   const detail = useQuery({
-    queryKey: ['email', workspace, selected?.id],
+    queryKey: ['private', user?.id, workspace, 'detail', selected?.id],
     queryFn: () => api.get<Email>(workspacePath(`/api/emails/${selected!.id}`, workspace)),
-    enabled: !!selected && !demo,
+    enabled: !!user && !!selected && !demo,
   });
   const email = detail.data ?? selected;
   return (

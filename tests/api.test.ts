@@ -7,6 +7,9 @@ const mocks = vi.hoisted(() => ({
   accountDelete: vi.fn(),
   accountList: vi.fn(),
   emailUpdate: vi.fn(),
+  raw: vi.fn(),
+  tagList: vi.fn(),
+  prefFind: vi.fn(),
 }));
 vi.mock('@/lib/auth', () => ({
   requireUser: mocks.requireUser,
@@ -15,9 +18,11 @@ vi.mock('@/lib/auth', () => ({
 }));
 vi.mock('@/lib/db', () => ({
   db: {
-    tag: { findFirst: mocks.tagFind, delete: mocks.tagDelete },
+    tag: { findFirst: mocks.tagFind, delete: mocks.tagDelete, findMany: mocks.tagList },
     emailAccount: { deleteMany: mocks.accountDelete, findMany: mocks.accountList },
     email: { updateMany: mocks.emailUpdate },
+    notificationPref: { findUnique: mocks.prefFind },
+    $queryRaw: mocks.raw,
   },
 }));
 vi.mock('@/lib/sync', () => ({ syncUser: vi.fn() }));
@@ -119,4 +124,37 @@ it('scopes Work account lists and message mutations to Work', async () => {
 it('rejects unknown workspaces before accessing mailbox data', async () => {
   expect((await GET(request('accounts?workspace=OTHER', 'GET'))).status).toBe(400);
   expect(mocks.accountList).not.toHaveBeenCalled();
+});
+
+it('loads inbox summaries independently of metadata, counts and settings', async () => {
+  mocks.raw.mockResolvedValue([]);
+  const response = await GET(request('inbox?workspace=WORK', 'GET'));
+  expect(response.status).toBe(200);
+  expect((await response.json()).data).toEqual({ emails: [], pageSize: 50, nextCursor: null });
+  expect(mocks.requireUser).toHaveBeenCalledOnce();
+  expect(mocks.raw).toHaveBeenCalledOnce();
+  expect(mocks.tagList).not.toHaveBeenCalled();
+  expect(mocks.prefFind).not.toHaveBeenCalled();
+  expect(mocks.accountList).not.toHaveBeenCalled();
+});
+it('checks inbox API authorization even when the proxy is bypassed', async () => {
+  mocks.requireUser.mockRejectedValue(new ApiError(401, 'UNAUTHORIZED', 'Sign in'));
+  expect((await GET(request('inbox', 'GET'))).status).toBe(401);
+  expect(mocks.raw).not.toHaveBeenCalled();
+});
+it('loads separate metadata and defaults for missing settings without loading mail or writing preferences', async () => {
+  mocks.tagList.mockResolvedValue([]);
+  mocks.accountList.mockResolvedValue([]);
+  mocks.prefFind.mockResolvedValue(null);
+  const metadata = await GET(request('workspace/metadata?workspace=WORK', 'GET'));
+  expect(metadata.status).toBe(200);
+  expect((await metadata.json()).data).toMatchObject({
+    user: { id: 'tenant-a' },
+    tags: [],
+    accounts: [],
+  });
+  expect(mocks.tagList.mock.calls[0][0].where).toEqual({ userId: 'tenant-a', workspace: 'WORK' });
+  const settings = await GET(request('workspace/settings', 'GET'));
+  expect((await settings.json()).data.refreshMinutes).toBe(5);
+  expect(mocks.raw).not.toHaveBeenCalled();
 });

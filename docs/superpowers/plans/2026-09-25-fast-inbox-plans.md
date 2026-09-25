@@ -11,7 +11,7 @@
 ## Tasks
 
 - [x] 0. Review and checkpoint existing changes. Baseline: 165 tests pass, typecheck/lint pass; commit ef7a40f.
-- [ ] 1. Lightweight reads and persistent cache.
+- [x] 1. Lightweight reads and persistent cache. Verified: 195 full-suite tests (86 focused), typecheck and lint on the isolated task tree; cursor SQL/index migrations exercised in PGlite. Browser/latency validation stays in Task 8.
   - Files: src/lib/workspace.ts, src/lib/inbox.ts, src/hooks/useFetch.ts, src/hooks/useAuth.ts, src/components/providers.tsx, inbox.tsx, workspace-shell.tsx, src/lib/auth.ts, src/proxy.ts, Prisma read indexes and focused tests.
   - Add /api/inbox, /api/workspace/metadata, /api/workspace/counts. Cursor is validated receivedAt/id with tenant/workspace filtering; take 51, return 50 plus nextCursor, no body fetch.
   - Restore safe cached summaries only after identifying the authenticated user; keep user/workspace in every private query key. Never persist bodies, credentials or auth session. Clear affected caches across tabs on logout/disconnect/deletion.
@@ -53,4 +53,3 @@ APP_MODE=demo npm run build
 ```
 
 Targeted tests run before each commit. The pre-commit hook also runs typecheck. Tests use mock providers and isolated Postgres fixtures; production email sending, external billing, and public deployment are not part of test execution.
-

@@ -35,14 +35,30 @@ export async function requireUser() {
     error,
   } = await supabase.auth.getUser();
   if (error || !user?.email) throw new ApiError(401, 'UNAUTHORIZED', 'Sign in to continue.');
-  return db.user.upsert({
-    where: { id: user.id },
-    create: { id: user.id, email: user.email },
-    update: { email: user.email },
-  });
+  const existing = await db.user.findUnique({ where: { id: user.id } });
+  if (existing) return existing;
+  try {
+    return await db.user.create({ data: { id: user.id, email: user.email } });
+  } catch (error) {
+    // Two first requests may race to bootstrap the same trusted identity.
+    if ((error as { code?: string }).code === 'P2002') {
+      const created = await db.user.findUnique({ where: { id: user.id } });
+      if (created) return created;
+    }
+    throw error;
+  }
 }
 export function adminAuth() {
   return createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SECRET_KEY!, {
     auth: { persistSession: false, autoRefreshToken: false },
   }).auth.admin;
+}
+
+/** Server shell hydration only; private API handlers still call requireUser independently. */
+export async function getShellUser() {
+  if (isDemo()) return { id: 'demo-user', email: 'alex@example.com' };
+  const { data, error } = await (await supabaseServer()).auth.getClaims();
+  const claims = data?.claims;
+  if (error || typeof claims?.sub !== 'string' || typeof claims.email !== 'string') return null;
+  return { id: claims.sub, email: claims.email };
 }

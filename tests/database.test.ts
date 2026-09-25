@@ -48,6 +48,9 @@ beforeAll(async () => {
   await database.exec(
     await readFile('prisma/migrations/20260922000000_workspaces/migration.sql', 'utf8'),
   );
+  await database.exec(
+    await readFile('prisma/migrations/20260925000000_inbox_read_indexes/migration.sql', 'utf8'),
+  );
 }, 30000);
 afterAll(() => database.close());
 it('applies the complete migration with RLS on all application tables', async () => {
@@ -121,4 +124,20 @@ it('cascades account disconnect only to that account’s email data', async () =
   expect(
     (await database.query('SELECT id FROM email_accounts WHERE id=$1', ['b'])).rows,
   ).toHaveLength(1);
+});
+
+it('creates workspace keyset, account and classification read indexes', async () => {
+  const { rows } = await database.query<{ indexname: string; indexdef: string }>(
+    "SELECT indexname,indexdef FROM pg_indexes WHERE schemaname='public'",
+  );
+  const indexes = Object.fromEntries(rows.map((r) => [r.indexname, r.indexdef]));
+  expect(indexes.emails_inbox_cursor_idx).toContain(
+    '("userId", workspace, "receivedAt" DESC, id DESC)',
+  );
+  expect(indexes.emails_account_cursor_idx).toContain(
+    '("userId", workspace, "accountId", "receivedAt" DESC, id DESC)',
+  );
+  expect(indexes.classifications_workspace_tag_idx).toContain(
+    '("userId", workspace, "tagId", matched, "tagVersion", "emailId")',
+  );
 });

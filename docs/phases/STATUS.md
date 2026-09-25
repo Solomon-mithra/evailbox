@@ -4,6 +4,8 @@ The user approved fast cached inbox reads, asynchronous Inngest processing, prov
 
 Baseline checkpoint `ef7a40f`: 165 tests pass; typecheck and lint pass. The verified owner Supabase identity exists; Heavy grant is pending. User requested setup instructions and will connect Inngest, Gmail Pub/Sub and Outlook later. Those live checks must remain pending.
 
+Task 1 is implemented: independent body-free inbox/metadata/count/settings reads, authenticated cursor pagination in inbox and tag views, server-verified shell hydration, no existing-user read writes, and safe bounded user/workspace IndexedDB summary persistence. Cache clearing covers logout, disconnect and deletion across tabs. Task verification: the isolated Task 1 tree passes all 195 tests (21 files), including 86 focused tests and actual SQL against PGlite; typecheck and lint pass. The read-index migration is local only. Warm-cache latency and complete browser journeys remain unmeasured pending Task 8.
+
 The record below is historical Phase 0–6 evidence; its old delivery scope and credential statements are superseded by Phase 7.
 
 ---
