@@ -1,4 +1,5 @@
-"""Offline planning calculator. No credentials, network calls, or mailbox reads.
+"""OBSOLETE historical planning example: old pricing and retired digest assumptions.
+Not a forecast for the current product. Offline planning calculator. No credentials, network calls, or mailbox reads.
 
 Run: python3 docs/engineering/cost_model.py
 Optional: --config path/to/custom-assumptions.json
@@ -52,7 +53,8 @@ def main():
     a = config["assumptions"]
     price = a["monthly_price"]
     net = price * (1 - a["payment_percent"] - a["subscription_billing_percent"]) - a["payment_fixed"]
-    print("# Cost worksheet (illustrative, not an invoice)")
+    print("# OBSOLETE historical cost worksheet — not current product guidance")
+    print("\nUses retired digest assumptions and old pricing. Do not use for launch or customer claims.")
     print(f"\nAs of {config['as_of']}; USD; net after assumed payment + billing fees: ${net:.5f}/user/month.")
     print("\n## AI sensitivity per user per month")
     rates = config["sensitivity_ai_rates"]

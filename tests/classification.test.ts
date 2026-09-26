@@ -395,3 +395,162 @@ it('does not overstate remaining mail when one email in a concurrent wave become
     remaining: 1,
   });
 });
+
+it('limits a turn to 20 newest emails across both workspaces', async () => {
+  await seed(25);
+  const result = await classifyEmails(user, { limit: 20 });
+  expect(mocks.evaluate).toHaveBeenCalledTimes(20);
+  expect(mocks.evaluate.mock.calls[0][0].id).toBe(user + '-0025');
+  expect(result.remaining).toBe(5);
+  expect(await usage()).toBe(20);
+});
+
+it('reuses a matching body from this turn without fetching credentials or content again', async () => {
+  await seed(1);
+  const bodies = new Map([
+    [
+      JSON.stringify([user, '1']),
+      {
+        body: input.body,
+        contentHash: emailContentHash(input),
+      },
+    ],
+  ]);
+  const result = await classifyEmails(user, { workspace: 'PERSONAL', bodies });
+  expect(result.classified).toBe(2);
+  expect(mocks.fetchText).not.toHaveBeenCalled();
+  expect(mocks.credentials).not.toHaveBeenCalled();
+  expect(mocks.evaluate.mock.calls[0][0].body).toBe(input.body);
+  expect(JSON.stringify(result)).not.toContain('PRIVATE');
+});
+
+it('refetches when a transient body belongs to a different content version', async () => {
+  await seed(1);
+  const bodies = new Map([
+    [
+      JSON.stringify([user, '1']),
+      {
+        body: 'OLD BODY',
+        contentHash: 'old-hash',
+      },
+    ],
+  ]);
+  await classifyEmails(user, { workspace: 'PERSONAL', bodies });
+  expect(mocks.fetchText).toHaveBeenCalledOnce();
+  expect(mocks.evaluate.mock.calls[0][0].body).toBe(input.body);
+});
+
+it('reuses a null body without a second provider request', async () => {
+  await seed(1);
+  const bodies = new Map([
+    [
+      JSON.stringify([user, '1']),
+      {
+        body: null,
+        contentHash: emailContentHash(input),
+      },
+    ],
+  ]);
+  await classifyEmails(user, { workspace: 'PERSONAL', bodies });
+  expect(mocks.fetchText).not.toHaveBeenCalled();
+  expect(mocks.evaluate.mock.calls[0][0].body).toBeNull();
+});
+
+it.skipIf(process.env.RUN_BURST_TEST !== '1')(
+  'drains a synthetic 100-user signup burst through real classification SQL',
+  async () => {
+    const emails = Number(process.env.BURST_EMAILS ?? 100);
+    if (!Number.isInteger(emails) || emails < 20 || emails > 2000)
+      throw new Error('BURST_EMAILS must be 20–2000');
+    const { inboxConcurrency, WORK_BATCH_SIZE } = await import('@/lib/inngest/config');
+    const users = Array.from(
+      { length: 100 },
+      (_, i) => `00000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}`,
+    );
+    for (const uid of users) {
+      await database.query('INSERT INTO auth.users(id) VALUES($1)', [uid]);
+      await database.query('INSERT INTO users(id,email) VALUES($1,$2)', [
+        uid,
+        `${uid}@example.com`,
+      ]);
+      await database.query(
+        `INSERT INTO email_accounts(id,"userId",provider,email,"accessToken","expiresAt") VALUES($1::text,$1::uuid,'GMAIL',$2,'fixture',now())`,
+        [uid, `${uid}@example.com`],
+      );
+      await database.query(
+        `INSERT INTO tags(id,"userId",name,"nameKey",prompt,"updatedAt") VALUES($1::text,$1::uuid,'A','a','Rule',now())`,
+        [uid],
+      );
+      await seed(emails, uid);
+    }
+    const queue = users.map((id) => ({ id, remaining: emails }));
+    const order: string[] = [],
+      first = new Map<string, number>();
+    let turns = 0;
+    const start = performance.now();
+    await Promise.all(
+      Array.from({ length: inboxConcurrency() }, async () => {
+        while (queue.length) {
+          const job = queue.shift()!;
+          order.push(job.id);
+          // Simulate a just-imported page. DB selection, evaluation waves, writes,
+          // freshness checks and usage accounting are the production implementations.
+          const bodies = new Map(
+            Array.from({ length: Math.min(WORK_BATCH_SIZE, job.remaining) }, (_, i) => [
+              JSON.stringify([job.id, String(job.remaining - i)]),
+              { body: input.body, contentHash: emailContentHash(input) },
+            ]),
+          );
+          const result = await classifyEmails(job.id, { limit: WORK_BATCH_SIZE, bodies });
+          bodies.clear();
+          turns++;
+          expect(result.errors).toBe(0);
+          if (result.classified && !first.has(job.id)) first.set(job.id, performance.now() - start);
+          if (result.remaining) queue.push({ ...job, remaining: result.remaining });
+        }
+      }),
+    );
+    expect(new Set(order.slice(0, 100)).size).toBe(100);
+    expect(first.size).toBe(100);
+    expect(await count('email_classifications')).toBe(100 * emails);
+    expect(await usage()).toBe(100 * emails);
+    expect(mocks.fetchText).not.toHaveBeenCalled();
+    expect(turns).toBe(100 * Math.ceil(emails / WORK_BATCH_SIZE));
+    process.stdout.write(
+      JSON.stringify({
+        benchmark: 'synthetic-local-classification',
+        users: 100,
+        emails: 100 * emails,
+        concurrency: inboxConcurrency(),
+        turns,
+        allFirstTurnsMs: Math.round(Math.max(...first.values())),
+        totalMs: Math.round(performance.now() - start),
+        provider: 'mocked',
+        inference: 'mocked',
+        database: 'PGlite',
+        scheduler: 'local FIFO; not hosted Inngest',
+      }) + '\n',
+    );
+  },
+  180_000,
+);
+
+it('shares the turn budget across personal and work inboxes', async () => {
+  await seed(25);
+  await database.query(
+    `INSERT INTO email_accounts(id,"userId",workspace,provider,email,"accessToken","expiresAt") VALUES('work-account',$1,'WORK','GMAIL','work@example.com','fixture',now())`,
+    [user],
+  );
+  await database.query(
+    `INSERT INTO tags(id,"userId",workspace,name,"nameKey",prompt,"updatedAt") VALUES('work-tag',$1,'WORK','Work','work','Rule',now())`,
+    [user],
+  );
+  await database.query(
+    `UPDATE emails SET workspace='WORK',"accountId"='work-account' WHERE "userId"=$1 AND "providerMessageId"::int<=10`,
+    [user],
+  );
+  const result = await classifyEmails(user, { limit: 20 });
+  expect(mocks.evaluate).toHaveBeenCalledTimes(20);
+  expect(result.remaining).toBe(5);
+  expect(mocks.evaluate.mock.calls.filter(([, tags]) => tags[0].id === 'work-tag')).toHaveLength(5);
+});

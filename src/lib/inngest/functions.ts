@@ -2,18 +2,18 @@ import 'server-only';
 import { z } from 'zod';
 import { inngest } from './client';
 import { db } from '../db';
-import { ApiError } from '../errors';
 import { requestDailySync } from '../work-queue';
 import { isDemo } from '../env';
 import { renewMailboxSubscriptions } from '../mailbox-subscriptions';
 import { recoverPendingWork } from './dispatch';
-import { fetchWorkBatch, classifyWorkBatch, finishWorkBatch } from './work';
+import { processInboxBatch, finishWorkBatch } from './work';
+import { inboxConcurrency } from './config';
 
 export const processInboxWork = inngest.createFunction(
   {
     id: 'process-inbox-work',
     triggers: { event: 'evailbox/work.requested' },
-    concurrency: [{ limit: 1, key: 'event.data.userId' }, { limit: 3 }],
+    concurrency: [{ limit: 1, key: 'event.data.userId' }, { limit: inboxConcurrency() }],
     retries: 4,
   },
   async ({ event, step, runId }) => {
@@ -29,25 +29,20 @@ export const processInboxWork = inngest.createFunction(
     await step.run('renew-mailbox-subscriptions', () =>
       renewMailboxSubscriptions({ userId, deadline: Date.now() + 40000 }),
     );
-    const sync = await step.run('fetch-mailbox-page-batches', () => fetchWorkBatch(userId));
-    // The delay is durable; no Vercel instance is held open while sleeping.
-    if (new Date(state.workNotBefore).getTime() > Date.now())
-      await step.sleepUntil('honor-cooldown', new Date(state.workNotBefore));
-    const classification = await step.run('classify-recent-mail', async () => {
-      try {
-        return await classifyWorkBatch(userId);
-      } catch (error) {
-        if (error instanceof ApiError && ['WORK_COOLDOWN', 'WORK_IN_PROGRESS'].includes(error.code))
-          return { classified: 0, errors: 0, remaining: 1, retryAfterSeconds: 60 };
-        // Only safe error types reach the orchestrator; SDK errors may contain mail.
-        throw new Error('Classification batch could not complete');
-      }
-    });
+    // Fetch, save metadata, signal readers and classify in ONE step. Bodies stay local.
+    // During an AI cooldown imports still advance; classification returns deferred work.
+    const { sync, classification } = await step.run('import-and-tag-page', () =>
+      processInboxBatch(userId),
+    );
     const next = await step.run('save-progress-and-signal', () =>
       finishWorkBatch(userId, state.workRevision, sync, classification),
     );
     if (next.pending) {
-      if (next.retryAt && new Date(next.retryAt).getTime() > Date.now())
+      if (
+        (!sync.pending || sync.errors > 0) &&
+        next.retryAt &&
+        new Date(next.retryAt).getTime() > Date.now()
+      )
         await step.sleepUntil('wait-before-continuation', new Date(next.retryAt));
       await step.sendEvent('continue-backlog', {
         id: `continue:${runId}`,

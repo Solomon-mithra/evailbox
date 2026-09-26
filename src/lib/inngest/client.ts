@@ -13,7 +13,7 @@ export function backgroundConfigured() {
 
 export const inngest = new Inngest({
   id: 'evailbox',
-  // A step gets its own request, keeping two 40-second batches out of one 60-second function.
+  // Each durable step gets its own request; import and classification share one 40-second step.
   checkpointing: false,
   isDev: process.env.NODE_ENV !== 'production' && process.env.INNGEST_DEV === '1',
   aiMetadata: false,

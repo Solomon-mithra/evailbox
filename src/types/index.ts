@@ -50,6 +50,7 @@ export interface AppPreferences {
   refreshMinutes: number;
 }
 export interface Workspace {
+  processing?: InboxProcessing;
   needsYou?: Email[];
   needsTotal?: number;
   tagCounts?: Record<string, number>;
@@ -79,7 +80,15 @@ export interface InboxPage {
   pageSize: number;
   nextCursor: string | null;
 }
+export interface InboxProcessing {
+  imported: number;
+  tagged: number;
+  remaining: number;
+  importing: boolean;
+  paused: boolean;
+}
 export interface InboxCounts {
+  processing?: InboxProcessing;
   total: number;
   needsTotal: number;
   tagCounts: Record<string, number>;

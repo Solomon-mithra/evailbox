@@ -1,6 +1,6 @@
 # Provider mailbox events
 
-This implementation is present but **not live until the external services below are connected**. No Google Cloud, Microsoft, or Inngest resources are provisioned by the code or tests. Missing provider-event configuration is recorded as `MailboxSubscription.status = unconfigured` with a safe `lastError`; it is never reported as an active watch.
+Provider event handlers are implemented; actual activation is environment-specific (see [status](../STATUS.md)). Gmail mailbox OAuth/sync does not by itself prove Pub/Sub push is configured. No Google Cloud, Microsoft, or Inngest resources are provisioned by the code or tests. Missing provider-event configuration is recorded as `MailboxSubscription.status = unconfigured` with a safe `lastError`; it is never reported as an active watch.
 
 ## Processing contract
 
@@ -12,7 +12,7 @@ Each account has a cascading `MailboxSubscription` record with its owning user/w
 
 `requestMailboxSubscriptionRenewal(userId, accountId?, workspace?)` persists renewal requests after an OAuth connection. The caller queues user work. Run renewal from that work flow and an hourly durable schedule. If a batch reports `pending`, continue with another bounded durable step or the next recovery tick so a large fleet does not wait a full hour per batch. `cleanupMailboxSubscription(userId, accountId, deadline?)` runs before disconnect/account deletion; it attempts provider cleanup and returns only safe metadata. Account deletion cascades the local subscription so later notifications cannot route to that account.
 
-## Gmail: connect later
+## Gmail push configuration
 
 1. Enable Gmail and Pub/Sub APIs in the same Google Cloud project used by the Gmail OAuth client.
 2. Create a Pub/Sub topic. Grant `roles/pubsub.publisher` on that topic to `gmail-api-push@system.gserviceaccount.com`.
@@ -35,7 +35,7 @@ The renewal request uses `users.watch`, `INBOX`, and `labelFilterBehavior: inclu
 
 Google documents watch expiry, Pub/Sub configuration, and the possibility of dropped notifications in [Gmail push notifications](https://developers.google.com/workspace/gmail/api/guides/push). Authentication setup is covered by [authenticated Pub/Sub push](https://docs.cloud.google.com/pubsub/docs/authenticate-push-subscriptions).
 
-## Outlook: connect later
+## Outlook notification configuration
 
 1. Configure the Microsoft OAuth application and delegated mail-read permission used by the app. Existing connections must have a compatible granted permission.
 2. Set `OUTLOOK_WEBHOOK_URL` to the deployed public HTTPS `/api/webhooks/outlook` URL. Use the same URL for basic notifications and lifecycle notifications; the worker does this automatically.

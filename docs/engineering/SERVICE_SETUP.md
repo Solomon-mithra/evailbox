@@ -1,6 +1,6 @@
 # Service activation and acceptance
 
-**External setup is intentionally deferred.** The application code and local tests do not create an Inngest environment, Google Pub/Sub resources, Microsoft subscriptions, or a Supabase project. This is the checklist for connecting them later. Local verification is not evidence that a hosted service is active.
+Updated 2026-09-26. This is an activation guide, not a claim that every service is missing or active. Gmail and Jev are already configured according to the owner; existing Inngest Production keys are now in `.env.local`, but its dashboard showed no active app. See [current status](../STATUS.md) for dated observations. Local tests do not provision external services.
 
 Use separate staging and production environments. Keep provider OAuth clients, database connections, Supabase keys, Inngest keys, and callback URLs aligned to the same environment. The final HTTPS application origin belongs in `NEXT_PUBLIC_APP_URL`.
 
@@ -25,7 +25,7 @@ npm run db:migrate
 npm run db:generate
 ```
 
-These commands are for the later activation; they have not been run against a live service as part of this implementation. `db:migrate` uses Prisma's deploy mode. Do not replace reviewed production migrations with `db push`.
+The previous committed record reports a hosted migration on 2026-09-26; verify the current destination and migration status before any new rollout. `db:migrate` uses Prisma's deploy mode. Do not replace reviewed production migrations with `db push`.
 
 Verify these database properties after applying migrations:
 
@@ -53,19 +53,19 @@ The app serves Inngest at `/api/inngest` with a Node.js runtime and a 60-second 
 
 A partial production configuration is unavailable: an event key by itself does not make the worker active. With missing keys, the app retains durable database work requests, and `/api/inngest` returns `503` rather than claiming connected processing.
 
-Create the intended Inngest environment and either install its Vercel integration or configure the keys manually. After deployment, sync the app using its deployed `/api/inngest` URL. For Vercel deployments protected by an access gate, configure the supported automation bypass in the Inngest integration so signed requests reach the endpoint. Keep the SDK's request signing enabled. The integration can manage environment keys and app syncing; manual deployments need an explicit sync. See [Inngest on Vercel](https://www.inngest.com/docs/deploy/vercel).
+Select the intended Inngest environment and either use its Vercel integration or configure its keys manually. Existing local keys belong to the Production environment; do not regenerate or rotate working keys as a setup shortcut. After deployment, sync the app using its deployed `/api/inngest` URL. For Vercel deployments protected by an access gate, configure the supported automation bypass in the Inngest integration so signed requests reach the endpoint. Keep the SDK's request signing enabled. The integration can manage environment keys and app syncing; manual deployments need an explicit sync. See [Inngest on Vercel](https://www.inngest.com/docs/deploy/vercel).
 
 Confirm the dashboard shows the `evailbox` app, its event-triggered inbox processing function, backlog recovery schedule, missed-mailbox-change recovery schedule, and provider-subscription renewal function. Sync again after deploying function-definition changes. Check that the deployment budget actually supports the configured 60-second route.
 
 ### Execution and recovery
 
-Work events contain only the owning user ID, never message bodies, OAuth credentials, or Graph private state. The durable database flags/revisions are the work outbox. A failed send is recoverable after the event service returns. Fetching, paid inference, and completion/signaling are separate durable steps; SDK checkpointing is disabled so two long batches do not share one route invocation.
+Work events contain only the owning user ID, never message bodies, OAuth credentials, or Graph private state. The durable database flags/revisions are the work outbox. A failed send is recoverable after the event service returns. Fetch, metadata save/signaling and up to 20 classification attempts share one `import-and-tag-page` step. Bodies remain in caller-owned memory and never cross steps. Completion/signaling has its own step; SDK checkpointing is disabled so long steps do not share one route invocation.
 
 The processing function serializes work per user and limits concurrent processing globally. Mailbox ingestion runs before any durable inference cooldown. A continuation event resumes remaining backlog. Recovery republishes durable work every minute, and a periodic incremental sync repairs provider notifications that were delayed or dropped. Provider renewal also runs hourly in bounded batches and is requested after connection or a lifecycle event. Large batches must continue through the worker's bounded continuation/recovery path.
 
 Classification cooldowns must not suppress newly requested mailbox ingestion. The recovery selector includes users with `syncRequested` accounts even if their paid-inference cooldown has not elapsed; classification still waits. Avoid clearing saved cursors or resetting cooldowns to force progress.
 
-### Local development later
+### Local development
 
 Local unit tests require no Inngest server. For an intentional local integration test, use a local test database and test configuration, start the app with `INNGEST_DEV=1`, and run the Inngest CLI dev server:
 
@@ -117,7 +117,7 @@ The app's watch history is separate from its ingestion cursor. A successful watc
 Run these first with designated test mailboxes and record the deployment revision, service environment, time, and observed outcome. Do not use private production email content as test fixtures.
 
 1. **Database and authentication:** Sign in, switch Personal/Work, reload an inbox, sign out, and sign in as a second user. Confirm expected tenant/workspace isolation and cache cleanup. Confirm realtime topics deny the other user.
-2. **Worker activation:** Request a sync through the app. The HTTP response should queue work quickly; provider fetch/classification should appear in separate Inngest steps. Close the browser and confirm the run completes. Dashboard payloads should contain IDs and counts only.
+2. **Worker activation:** Request a sync through the app. The HTTP response should queue work quickly; provider fetch/classification should share the `import-and-tag-page` step, with body-free numeric results. Close the browser and confirm the run completes. Dashboard payloads should contain IDs and counts only.
 3. **Publication recovery:** In a staging environment, temporarily make event publication unavailable, request work, and restore the configuration. Confirm the saved work is processed after recovery without another browser request. Never clear the outbox merely to hide a pending status.
 4. **Provider arrival:** Deliver a harmless message to the test inbox using the provider's own client. Confirm authenticated provider notification receipt, durable work, incremental sync, classification, and a refreshed inbox view. Duplicate delivery must not duplicate stored messages or advance an unsaved checkpoint.
 5. **Backlog and renewal:** Connect a mailbox with existing mail and confirm its backlog is ingested. Inspect a successful watch/subscription expiry and safe active status. Exercise renewal using the worker's staging controls, then verify the provider still delivers changes.

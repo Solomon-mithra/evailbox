@@ -46,9 +46,24 @@ function usePrivateQuery<T>(kind: string, path: string, filters: Filters, sample
       demo
         ? Promise.resolve(sample())
         : api.get<T>(workspacePath(`${path}?${paramsFor(filters)}`, workspace)),
-    refetchInterval: () =>
-      (client.getQueryData<AppPreferences>(['private', user?.id, workspace, 'settings', {}])
-        ?.refreshMinutes ?? 5) * 60000,
+    refetchInterval: (query) => {
+      const metadata = client.getQueryData<WorkspaceMetadata>([
+        'private',
+        user?.id,
+        workspace,
+        'metadata',
+        {},
+      ]);
+      const progress =
+        kind === 'counts' ? (query.state.data as InboxCounts | undefined)?.processing : undefined;
+      const processing = progress && (progress.importing || progress.remaining > 0);
+      if (!demo && kind !== 'settings' && (metadata?.user.workRequested || processing))
+        return 2_000;
+      return (
+        (client.getQueryData<AppPreferences>(['private', user?.id, workspace, 'settings', {}])
+          ?.refreshMinutes ?? 5) * 60000
+      );
+    },
   });
 }
 export function useWorkspaceMetadata() {
@@ -103,6 +118,7 @@ export function useInboxWorkspace(filters: Filters = {}) {
           needsYou: needs.data?.emails,
           needsTotal: counts.data?.needsTotal,
           tagCounts: counts.data?.tagCounts,
+          processing: counts.data?.processing,
           page: filters.page ?? 0,
         }
       : undefined;

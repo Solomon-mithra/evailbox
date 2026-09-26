@@ -250,3 +250,26 @@ it('stores the content hash of the full message but never persists its body', as
   expect(row.update).not.toHaveProperty('body');
   expect(JSON.stringify(row)).not.toContain('PRIVATE FULL BODY');
 });
+
+it('yields after one page and carries bodies only in caller-owned memory', async () => {
+  const message = {
+    providerMessageId: 'burst',
+    subject: 'Hello',
+    sender: 'a@example.com',
+    senderName: 'A',
+    snippet: 'Preview',
+    body: 'TRANSIENT SECRET',
+    receivedAt: new Date(),
+    isRead: false,
+    webUrl: 'https://mail.google.com',
+  };
+  fixture.fetch.mockResolvedValue({ hasMore: true, cursor: 'next', messages: [message] });
+  fixture.pendingAccounts.mockResolvedValue(1);
+  const bodies = new Map();
+  const result = await syncMailboxes('u', undefined, Date.now() + 45000, { maxPages: 1, bodies });
+  expect(fixture.fetch).toHaveBeenCalledOnce();
+  expect(result).toMatchObject({ synced: 1, pending: true });
+  expect(bodies.get(JSON.stringify(['a', 'burst']))).toMatchObject({ body: 'TRANSIENT SECRET' });
+  expect(JSON.stringify(result)).not.toContain('TRANSIENT SECRET');
+  expect(JSON.stringify(fixture.upsert.mock.calls)).not.toContain('TRANSIENT SECRET');
+});

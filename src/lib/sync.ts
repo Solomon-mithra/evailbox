@@ -6,22 +6,26 @@ import { decrypt, encrypt } from './crypto';
 import { fetchEmailPage, refreshAccessToken } from './providers';
 import { classifyEmails } from './classification';
 import { emailContentHash } from './classification-version';
+import { bodyKey, type TransientBodies } from './transient-bodies';
 import { Prisma } from '@prisma/client';
 /** Resume provider pages independently of paid inference. */
 export async function syncMailboxes(
   userId: string,
   accountId?: string,
   deadline = Date.now() + 45000,
+  options: { maxPages?: number; bodies?: TransientBodies } = {},
 ) {
   const accounts = await db.emailAccount.findMany({
     where: { userId, syncRequested: true, ...(accountId ? { id: accountId } : {}) },
+    orderBy: [{ lastSync: { sort: 'asc', nulls: 'first' } }, { id: 'asc' }],
   });
+  let pagesLeft = options.maxPages ?? Infinity;
   let synced = 0,
     errors = 0,
     pending = false;
   for (const snapshot of accounts) {
     let account = snapshot;
-    if (Date.now() > deadline) {
+    if (Date.now() > deadline || pagesLeft <= 0) {
       pending = true;
       break;
     }
@@ -62,7 +66,7 @@ export async function syncMailboxes(
       let cursor = account.cursor;
       let rescanStartedAt = account.rescanStartedAt;
       for (let page = 0; page < 4; page++) {
-        if (Date.now() > deadline) {
+        if (Date.now() > deadline || pagesLeft <= 0) {
           pending = true;
           break;
         }
@@ -70,7 +74,7 @@ export async function syncMailboxes(
         const result = await withProviderDeadline(deadline, () =>
           fetchEmailPage(account.provider, token, cursor),
         );
-        // Saving 25 messages over a remote database connection can exceed Prisma's
+        // Saving a page over a remote database connection can exceed Prisma's
         // default five-second transaction. Budget the save explicitly, including
         // connection wait and cleanup, without advancing a cursor we cannot save.
         const saveBudget = deadline - Date.now() - 1000;
@@ -161,6 +165,13 @@ export async function syncMailboxes(
           },
           { maxWait: 2000, timeout: Math.min(20000, saveBudget - 2000) },
         );
+        // Populate only after commit. Caller discards these bodies before the step returns.
+        for (const message of result.messages)
+          options.bodies?.set(bodyKey(account.id, message.providerMessageId), {
+            body: message.body,
+            contentHash: emailContentHash(message),
+          });
+        pagesLeft--;
         synced += result.messages.length;
         cursor = result.cursor;
         if (!result.hasMore) break;

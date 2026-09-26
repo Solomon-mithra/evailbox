@@ -1,10 +1,12 @@
 # Forest, mint, and lime theme
 
+Current visual guidance plus dated historical review notes. Notification/digest UI mentioned in historical checks has since been retired; those screenshots and checks do not establish the current deployment. See [status](../STATUS.md).
+
 The supplied palette is adapted to an inbox used frequently throughout the day. Forest green anchors navigation and primary actions. White email surfaces protect reading contrast. Lime marks the active page and high-priority groups; mint and cyan support medium- and low-priority tags. Priority labels, icons, and tab underlines accompany color. Errors and destructive actions retain red semantics.
 
 All app pages use the cool off-white canvas `#f8fafc`, including sign-in and standalone app states. Page-heading boxes retain their lime/mint gradients. The public landing page has separately scoped `#fbfcf9` and a green radial hero backdrop; the app-background adjustment does not flatten those surfaces.
 
-The main implementation lives in `src/app/globals.css`. Theme tokens are shared by navigation, inbox rows, settings, dialogs, forms, sign-in, and notifications. `src/app/layout.tsx` loads a local variable Inter font with `next/font/local` and a swap fallback. No runtime font request goes to a third party.
+The main implementation lives in `src/app/globals.css`. Theme tokens are shared by navigation, inbox rows, settings, dialogs, forms and sign-in. `src/app/layout.tsx` loads a local variable Inter font with `next/font/local` and a swap fallback. No runtime font request goes to a third party.
 
 ## Typography and interaction choices
 
@@ -51,7 +53,7 @@ References: [WCAG text contrast](https://www.w3.org/WAI/WCAG22/Understanding/con
 
 Historical theme previews (before the evailbox rename and final canvas adjustment): [desktop](theme/desktop.png) and [mobile](theme/mobile.png). Both use synthetic demo mail.
 
-The milestone test counts below are historical. See [STATUS.md](../phases/STATUS.md) for the latest source baseline, check results and remaining acceptance.
+The milestone test counts below are historical. See [STATUS.md](../STATUS.md) for the latest source baseline, check results and remaining acceptance.
 
 Font source: [Inter variable WOFF2](https://github.com/rsms/inter/blob/master/docs/font-files/InterVariable.woff2). The upstream SIL Open Font License is included in `src/app/fonts/LICENSE.txt`.
 
@@ -79,7 +81,7 @@ The public homepage at `/` introduces evailbox to people managing busy personal 
 
 The page uses the existing Inter font and forest/lime tokens, 16–17px introduction text, 12px minimum example metadata, visible selection and focus, and 44–52px primary targets. Supporting text against the strongest hero gradient endpoint measures 4.99:1, the secondary headline 5.16:1 against the base background, and primary button text 10.14:1. Company-style presentation uses actual product capabilities, explicit example labeling, and practical mailbox/AI explanations, without invented customer counts, endorsements, or performance claims.
 
-Navigation, authentication callbacks, reset destinations, digest links, push notifications, and the service-worker fallback point to `/inbox`. Previously delivered `/?email=…&workspace=…` links redirect with their parameters preserved. In live mode, `/` bypasses authentication; `/inbox` and existing application routes remain protected. The homepage is indexable while application metadata retains noindex.
+Current navigation, authentication callbacks and reset destinations point to `/inbox`. Notification/digest delivery and the old service worker have been retired. Previously delivered `/?email=…&workspace=…` links redirect with their parameters preserved. In live mode, `/` bypasses authentication; `/inbox` and existing application routes remain protected. The homepage is indexable while application metadata retains noindex.
 
 Browser storage moves to evailbox keys with a compatibility reader for the previous keys. Existing rules, workspace choice, and demo edits are preserved. Only known generated demo-email sentences and classification explanations receive a copy update; user-written rules stay unchanged. Technical Jev model identifiers and historical repository/deployment URLs retain their actual values.
 

@@ -140,7 +140,27 @@ export async function getInboxCounts(
     needs: '0' as const,
   };
   const rows = await db.$queryRaw<InboxCounts[]>(Prisma.sql`
+    WITH progress AS (
+      SELECT count(*)::int AS imported,
+        count(*) FILTER (WHERE EXISTS (
+          SELECT 1 FROM tags t WHERE t."userId"=e."userId" AND t.workspace=e.workspace
+            AND NOT EXISTS (
+              SELECT 1 FROM email_classifications c WHERE c."emailId"=e.id
+                AND c."userId"=e."userId" AND c.workspace=e.workspace AND c."tagId"=t.id
+                AND c."tagVersion"=t.version AND e."contentHash"<>''
+                AND c."contentHash"=e."contentHash" AND c."modelVersion"=${currentModelVersion()}
+            )
+        ))::int AS remaining
+      FROM emails e WHERE ${where(user.id, base)}
+    )
     SELECT
+      (SELECT jsonb_build_object(
+        'imported', p.imported, 'tagged', p.imported-p.remaining, 'remaining', p.remaining,
+        'importing', EXISTS (SELECT 1 FROM email_accounts a WHERE a."userId"=${user.id}::uuid
+          AND a.workspace=${input.workspace}::"WorkspaceKind" AND a."syncRequested"=true),
+        'paused', EXISTS (SELECT 1 FROM users u WHERE u.id=${user.id}::uuid AND u."workNotBefore">CURRENT_TIMESTAMP)
+          OR EXISTS (SELECT 1 FROM processing_state WHERE id='jev' AND "notBefore">CURRENT_TIMESTAMP)
+      ) FROM progress p) AS processing,
       (SELECT count(*)::int FROM emails e WHERE ${where(user.id, input)}) AS total,
       (SELECT count(*)::int FROM emails e WHERE ${where(user.id, base)} AND ${needsMatch()}) AS "needsTotal",
       COALESCE((SELECT jsonb_object_agg(counts."tagId", counts.n) FROM (

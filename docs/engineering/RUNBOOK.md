@@ -33,7 +33,7 @@ The script requires a confirmed Supabase email, writes the application plan and 
 
 ## Processing and recovery
 
-Sync returns HTTP 202 after saving work markers. Inngest receives only a user ID. Each fetch/classify batch runs in a separate step; sleeps and retry delays do not hold a server request open. Provider checkpoints and account leases prevent cursor loss and overlapping refresh-token rotation. Classification uses bounded concurrency, guarded batched writes and shared Jev cooldowns.
+Sync returns HTTP 202 after saving work markers. Inngest receives only a user ID. Each bounded import-and-classify turn runs in one step with transient bodies; sleeps and retry delays do not hold a server request open. Provider checkpoints and account leases prevent cursor loss and overlapping refresh-token rotation. Classification uses bounded concurrency, guarded batched writes and shared Jev cooldowns.
 
 Inspect workRequested/workRevision/workNotBefore, syncRequested/cursor/syncError and subscription status/expiry/retry fields without logging email bodies or tokens. The one-minute outbox recovery retries event publication; the 15-minute incremental scan repairs missed provider events. Subscription renewal runs hourly and continues in bounded batches. If Inngest is offline, work remains queued until service recovery.
 
@@ -74,7 +74,7 @@ The Next.js app uses `@supabase/ssr` for cookie sessions and `@supabase/supabase
 1. Create a dedicated Supabase project for the intended environment. Keep staging and production credentials separate.
 2. Set `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` from project settings. Store `SUPABASE_SECRET_KEY` only in server environment secrets.
 3. Set `DATABASE_URL` to the appropriate Prisma runtime connection and `DIRECT_URL` to the direct/migration connection from Supabase. Percent-encode password special characters. Never expose either as public variables.
-4. Back up existing data and review every migration in `prisma/migrations/`, including the Phase 7 read-index, Realtime, subscription, classification-freshness, plan and reply-draft migrations. Run `npm run db:migrate` with the intended environment loaded, then `npm run db:generate`. The workspace upgrade preserves existing rows as Personal and changes mailbox/name uniqueness and composite foreign keys; coordinate it with application rollout. No migration has been validated on a live project. Supabase roles and `auth.uid()` are required; plain PostgreSQL needs equivalent auth scaffolding for integration testing. See [workspace rollout](WORKSPACES.md).
+4. Back up existing data and review every migration in `prisma/migrations/`, including the read-index, Realtime, subscription, classification-freshness, plan and reply-draft migrations. Run `npm run db:migrate` with the intended environment loaded, then `npm run db:generate`. The workspace upgrade preserves existing rows as Personal and changes mailbox/name uniqueness and composite foreign keys; coordinate it with application rollout. The previous committed record reports a hosted migration; verify the current target against [status](../STATUS.md) and the migration table. Supabase roles and `auth.uid()` are required; plain PostgreSQL needs equivalent auth scaffolding for integration testing. See [workspace rollout](WORKSPACES.md).
 5. Verify every application table has RLS enabled. Test authenticated user A cannot select user B's allowed rows and cannot directly read credential, preference, subscription, draft, usage or processing tables, or update their own plan. Test server APIs independently: Prisma's privileged role can bypass RLS, so RLS alone does not prove tenant isolation. [Supabase RLS roles](https://supabase.com/docs/guides/database/postgres/row-level-security)
 6. Generate a 32-byte key with `openssl rand -hex 32` into a secure secret store; set `ENCRYPTION_SECRET_KEY`. Generate an independent long random `CRON_SECRET` (at least 32 characters). Preserve encryption-key backups securely.
 7. Configure every live variable in `.env.example`, set the exact HTTPS `NEXT_PUBLIC_APP_URL`, and set `APP_MODE=live`. Startup validation rejects missing placeholders; do not suppress validation to deploy a partially configured live service.
@@ -105,7 +105,7 @@ Sign-in and mailbox access are two separate OAuth flows.
 
 ## Production release gate
 
-1. Run all local quality checks and complete the Phase 6 and Phase 7 browser checks. Review the actual deployable diff, dependency lockfile, migration, environment names, domain/callbacks and Inngest/provider-event activation.
+1. Run all local quality checks and complete the current product journeys and service acceptance checks. Review the actual deployable diff, dependency lockfile, migration, environment names, domain/callbacks and Inngest/provider-event activation.
 2. Confirm the repository is private and contains no `.env.local`, keys or email dumps. Connect it to the intended Vercel project; set Node/runtime and environment variables separately for preview and production.
 3. Prepare a concrete release candidate and migration/rollback plan. Obtain the task's final deployment approval before publishing; this runbook does not grant deployment authorization.
 4. Apply approved migrations against the correct backed-up database, deploy the approved commit, and verify `/api/health` reports the expected mode.
@@ -131,6 +131,75 @@ Monitor durable workRequested/workNotBefore/workFailures, syncRequested/cursor/r
 
 Disconnecting a mailbox removes local records, not provider-side consent. For revoked application access, remove the grant in Google/Microsoft account settings too. User deletion removes the Supabase identity and application data; independently verify storage/backups/third-party retention policies when responding to deletion requests.
 
-## Vercel Git integration blocker
+## Deployment identity
 
-The private GitHub repository was created and pushed successfully. `vercel git connect https://github.com/Solomon-mithra/jevinbox` returned HTTP 400 because the Vercel account needs a GitHub Login Connection. The repository has since been renamed to [Solomon-mithra/evailbox](https://github.com/Solomon-mithra/evailbox) and remains private. Add the GitHub Login Connection in Vercel account settings, then use `vercel git connect https://github.com/Solomon-mithra/evailbox`. CI runs on GitHub, but the subsequent CLI deployment of the committed release was also blocked: “The deployment was blocked because the commit author doesn’t have permission to create deployments for this project.” Resolve the GitHub identity and commit-author deployment permission through an authorized Vercel project operator before retrying. Do not alter authorship or strip repository metadata to bypass this restriction. The earlier verified demo remains available; the latest committed changes are not deployed. Do not assume `git push` deploys this project before the connection and permissions are verified.
+Historical Git/Vercel blockers do not establish current account permissions. Verify the intended repository, project and deployment identity before publishing; record current evidence in [status](../STATUS.md).
+
+## Signup bursts (20-message turns)
+
+`INBOX_WORK_CONCURRENCY` controls the inbox function's global **step** concurrency,
+defaulting to 5 and bounded to 1–100. Set it to a value supported by the deployed
+Inngest plan, then increase gradually against Gmail project quotas, Jev 429s and
+DB pool wait times. `JEV_CONCURRENCY` remains 4 by default (1–8 per user); at a
+global setting of 100 there can be up to 400 inference calls in flight.
+This does not change the service plan or account-level limits.
+
+Each turn imports one provider page (initial page size 20), saves metadata and
+broadcasts a refresh before classifying at most 20 emails across workspaces.
+Remaining work gets a new continuation event. A per-user concurrency key keeps
+turns serial; Inngest supplies best-effort fairness across keys, **not strict
+round-robin ordering**. Small turns prevent one large initial import from consuming
+a full 100-email turn. Account import order is least-recently-synced first.
+Gmail history pages count history records, so incremental pages can contain more
+than 20 changed messages; classification remains capped at 20.
+
+Import and inference now share **one** `import-and-tag-page` step. A local map
+carries bodies by account/message identity and content hash, then is cleared in
+`finally`. Step results and continuation events contain only counts/IDs. Bodies
+are never placed in Inngest results or Postgres. Retries after a committed cursor,
+content changes, inference cooldowns, and later reclassification can still require
+a provider fetch. Import continues while inference is cooling down; failures and
+finished imports observe the durable retry time.
+
+Inbox progress is workspace-wide, independent of search/tag/account filters.
+“Tagged” counts emails with decisions for **all current tags**, including negative
+decisions, and checks content/tag/model versions. During import the denominator is
+the number imported so far, not a claimed mailbox total. Realtime remains the fast
+path; active work uses a two-second polling fallback.
+
+Use the transaction-pooler `DATABASE_URL` example in `.env.production.example`
+(port 6543, `pgbouncer=true`, `connection_limit=1`). Copy the actual endpoint from
+Supabase; do not guess the region/index. Keep `DIRECT_URL` on a session/direct
+connection for migrations. Updating the example does not change a deployed
+project's environment. Redeploy after setting runtime credentials.
+
+References: [Inngest concurrency](https://www.inngest.com/docs/guides/concurrency),
+[tenant fairness](https://www.inngest.com/docs/guides/multi-tenancy),
+[Supabase connections](https://supabase.com/docs/guides/database/connecting-to-postgres).
+
+### Burst validation
+
+- `npm run test:burst`: 100 users × 100 emails, real classification queries/writes
+  in PGlite with mocked providers/inference and a local FIFO queue. Verifies 10k
+  decisions, exactly-once usage, bounded turns and no second body fetch on the
+  normal path. Its timings measure this local harness only.
+- `BURST_EMAILS=1234 npm run test:burst`: the 123,400-email case. Increase
+  `INBOX_WORK_CONCURRENCY` to exercise larger settings locally.
+- `npm run load:burst -- staging-user-ids.json`: hosted measurements. Supply a JSON
+  array of 100 distinct, fresh **staging** user UUIDs, connected test mailboxes and
+  at least one tag in every connected workspace. Pause background dispatch during
+  provisioning; all fixture users must be idle, with null cursors and no imported
+  emails. Set `DATABASE_URL` and `INNGEST_EVENT_KEY` for that staging environment.
+  The script marks work and publishes all events together, using actual mailbox
+  contents (Gmail retains its last-30-days window). It does not create accounts,
+  send mail, delete records, or reset existing imports.
+- The hosted script reports first-tag p50/p95/max from DB timestamps, observed
+  completion p50/p95/max (one-second polling), and actual imported/tagged counts.
+  Empty test inboxes cannot provide a first-tag measurement. It times out after
+  30 minutes (`BURST_TIMEOUT_MS` overrides); pending work remains durable. It does
+  not measure OAuth/signup latency. Use the same mailbox fixtures with fresh
+  users in separate staging environments for before/after comparisons.
+
+Do not quote synthetic timings as hosted performance or put an unmeasured value
+in the interview claim. A successful local test proves queue/budget/data behavior;
+a staging run is needed to establish latency and quota headroom.

@@ -1,35 +1,26 @@
-# Technology stack and decisions
+# Technology stack
 
-The committed `package-lock.json` is authoritative for exact installed dependency versions. Use `npm ci` in CI/deployment rather than resolving new versions from the manifest. This document records the 2026-09-21 implementation.
+Reviewed 2026-09-26. `package.json` and `package-lock.json` are authoritative for versions; install with `npm ci`. Read the installed Next.js guides before changing framework code, as required by `AGENTS.md`.
 
-| Layer              | Implementation                                                                                                    | Reason / boundary                                                                                                                                                                 |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Runtime            | Node.js 22 in CI; Node runtime API routes                                                                         | Node crypto, Prisma and Web Push remain server-side.                                                                                                                              |
-| Framework          | Next.js **16.3.5**, App Router                                                                                    | Deliberate deviation from the task's Next.js 15 reference; uses current Next 16 conventions including `src/proxy.ts`.                                                             |
-| UI                 | React 19.3.0, TypeScript strict, Tailwind CSS 4, Lucide, Radix UI, class-variance-authority, clsx, tailwind-merge | Accessible primitives and consistent components; composition still needs browser/keyboard review.                                                                                 |
-| Client data        | TanStack React Query 5                                                                                            | Shared workspace queries, mutation invalidation and cache refresh.                                                                                                                |
-| Forms / validation | Zod 4; React Hook Form / resolvers available                                                                      | Server validation remains authoritative regardless of frontend library.                                                                                                           |
-| Auth               | Supabase Auth, `@supabase/ssr`, `@supabase/supabase-js`                                                           | Google sign-in with server-verified session cookies; independent provider mail connections.                                                                                       |
-| Database           | Supabase PostgreSQL, Prisma 6.19.3                                                                                | Typed server queries, migration SQL, relational cascades and tenant foreign keys.                                                                                                 |
-| Email providers    | Direct Gmail REST and Microsoft Graph REST using fetch                                                            | Least privilege, explicit paging/cursors, protocol fixtures, no unnecessary provider SDK.                                                                                         |
-| Inference          | `ai` **7.0.108**, `@ai-sdk/gateway` **4.0.88**                                                                    | Native `experimental_evaluate`, `typesafe-ai/jev`, boolean probabilities. No chat generation.                                                                                     |
-| Encryption         | Native Node `crypto`, **AES-256-GCM**                                                                             | Deliberate deviation from crypto-js: authenticated ciphertext rejects tampering and avoids unauthenticated CBC defaults. Versioned envelope supports a future migration strategy. |
-| Hosting            | Vercel                                                                                                            | Node API deadline budget. No Vercel cron is scheduled; Inngest runs background jobs and recovery schedules.                                                                       |
-| Background jobs    | Inngest, Supabase Realtime, Gmail Pub/Sub, Graph subscriptions                                                    | Resumable fetch/classify steps, private invalidation and provider change events. Activation requires external credentials; see [SERVICE_SETUP](SERVICE_SETUP.md).                 |
-| Analytics          | `@vercel/analytics` available                                                                                     | Enable only appropriate aggregate telemetry; email content must not enter analytics.                                                                                              |
-| Quality            | Vitest, ESLint 9 + Next config, TypeScript, Playwright, Husky                                                     | Unit/protocol checks, type/lint/build checks, browser smoke review.                                                                                                               |
-| CI                 | GitHub Actions                                                                                                    | `npm ci`, Prisma generation, tests, lint, typecheck and build in explicit demo mode.                                                                                              |
+| Layer                 | Current implementation                                                                              |
+| --------------------- | --------------------------------------------------------------------------------------------------- |
+| Runtime/framework     | Node.js 22, Next.js 16.3.5 App Router, `src/proxy.ts`, Node API routes                              |
+| Interface             | React 19, strict TypeScript, Tailwind CSS 4, Radix primitives, Lucide, local Inter font             |
+| Client data           | TanStack Query 5 with bounded private IndexedDB summary persistence                                 |
+| Authentication        | Supabase Auth and SSR cookies; mailbox OAuth is separate                                            |
+| Database              | Supabase PostgreSQL, Prisma 6, SQL migrations/RLS and tenant/workspace foreign keys                 |
+| Mail providers        | Direct Gmail REST and Microsoft Graph requests with deadlines and protocol fixtures                 |
+| Inference             | AI SDK 7 native `experimental_evaluate`, Gateway evaluation model `typesafe-ai/jev` by default      |
+| Background processing | Inngest bounded import/classify turns, continuations and recovery/renewal schedules                 |
+| Live updates          | Supabase private Realtime invalidation plus authenticated refetch/polling                           |
+| Provider events       | Gmail authenticated Pub/Sub, Microsoft Graph notifications and renewal                              |
+| Encryption            | Node crypto AES-256-GCM; stable server-only key for stored OAuth/private state                      |
+| Hosting               | Vercel Node functions; Vercel cron configs empty                                                    |
+| Validation            | Zod, Vitest/PGlite, TypeScript, ESLint, Prettier and scoped browser checks                          |
+| CI                    | GitHub Actions: install, environment-name parity, Prisma generation, tests, lint, types, demo build |
 
-Typography uses the bundled variable Inter font through `next/font/local`, with its license in `src/app/fonts/LICENSE.txt`. Provider marks are local SVGs shared through `ProviderLogo`; see [theme choices](THEME.md) and [asset sources](PROVIDER_LOGOS.md). Playwright is installed; recorded browser reviews are scoped observations, not a claim of a comprehensive automated end-to-end suite.
+Jev's evaluation interface is experimental; upgrades need protocol fixtures against the installed SDK. No chat generation is used for classification. Imported bodies stay transient; user-written drafts are stored. No Redis, push-notification delivery or digest service is required.
 
-## Dependency and configuration policy
+RLS does not replace application scoping when Prisma uses a privileged database connection. Service quotas, rates, retention controls and availability must be checked against the actual account; this repository does not promise free capacity or fixed infrastructure cost.
 
-Direct dependency versions are pinned in the manifest; reproducible builds use the lockfile, including the resolved security override. Upgrade intentionally in a branch, review changelogs and run the full check set. Jev's evaluation interface is explicitly experimental, so SDK/provider upgrades require the native wire-protocol fixture before release.
-
-No crypto-js dependency is needed. `ENCRYPTION_SECRET_KEY` is 64 hexadecimal characters (32 bytes), with a fresh 12-byte nonce per encryption and a stored authentication tag. Replacing that key without re-encrypting stored tokens makes them unreadable. The current envelope includes a version, not a key ID or automatic rotation service.
-
-## Honest infrastructure assumptions
-
-A privileged Prisma connection does not inherit end-user RLS identity; application scoping remains mandatory. Supabase's service role is server-only and used for identity deletion. Exact provider prices, quotas, retention support and OAuth verification requirements can change. Inspect account dashboards and official documentation before launch; no static “free forever” or fixed monthly cost is asserted.
-
-Vercel Hobby only permits daily cron scheduling. Phase 7 removes Vercel cron schedules entirely (`vercel.live.json` has none); recurring renewal and recovery run as Inngest schedules instead. [Vercel cron management](https://vercel.com/docs/cron-jobs/manage-cron-jobs)
+[Architecture](ENGINEERING.md), [environment](ENVIRONMENT.md), [status](../STATUS.md), [provider assets](PROVIDER_LOGOS.md).

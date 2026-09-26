@@ -17,7 +17,10 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test:db": "vitest run tests/database.test.ts",
-    "monitor": "tsx scripts/monitor.ts"
+    "monitor": "tsx scripts/monitor.ts",
+    "test:burst": "RUN_BURST_TEST=1 vitest run tests/classification.test.ts -t \"synthetic 100-user\"",
+    "load:burst": "tsx scripts/load-test-signup-burst.ts",
+    "env:check": "node scripts/check-env-keys.mjs"
   },
   "dependencies": {
     "@ai-sdk/gateway": "4.0.88",

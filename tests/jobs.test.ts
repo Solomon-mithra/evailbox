@@ -30,7 +30,12 @@ vi.mock('@/lib/sync', () => ({ syncMailboxes: m.sync }));
 vi.mock('@/lib/classification', () => ({ classifyEmails: m.classify }));
 vi.mock('@/lib/realtime', () => ({ signalInboxChange: m.signal }));
 import { enqueueUserWork, recoverPendingWork } from '@/lib/inngest/dispatch';
-import { fetchWorkBatch, classifyWorkBatch, finishWorkBatch } from '@/lib/inngest/work';
+import {
+  fetchWorkBatch,
+  classifyWorkBatch,
+  finishWorkBatch,
+  processInboxBatch,
+} from '@/lib/inngest/work';
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -147,4 +152,50 @@ it('recovery can publish mailbox ingestion during an inference cooldown without 
   );
   expect(m.send).toHaveBeenCalledWith([expect.objectContaining({ data: { userId: 'u' } })]);
   expect(m.update).not.toHaveBeenCalled();
+});
+
+it('shares transient bodies inside one bounded turn and signals metadata before inference', async () => {
+  let bodies: Map<string, unknown>;
+  m.sync.mockImplementation(async (_user, _account, _deadline, options) => {
+    expect(options.maxPages).toBe(1);
+    bodies = options.bodies;
+    bodies.set('mail', { body: 'PRIVATE', contentHash: 'hash' });
+    return { synced: 20, errors: 0, pending: true };
+  });
+  m.classify.mockImplementation(async (_user, options) => {
+    expect(options.bodies).toBe(bodies);
+    expect(options.limit).toBe(20);
+    expect(m.signal).toHaveBeenCalled();
+    return { classified: 20, errors: 0, remaining: 0 };
+  });
+  const result = await processInboxBatch('u');
+  expect(result.sync.synced).toBe(20);
+  expect(JSON.stringify(result)).not.toContain('PRIVATE');
+  expect(bodies!.size).toBe(0);
+});
+
+it('continues importing while inference is cooling down', async () => {
+  const { ApiError } = await import('@/lib/errors');
+  m.sync.mockResolvedValue({ synced: 20, errors: 0, pending: true });
+  m.classify.mockRejectedValue(new ApiError(429, 'WORK_COOLDOWN', 'paused'));
+  const result = await processInboxBatch('u');
+  expect(result.sync.synced).toBe(20);
+  expect(result.classification).toMatchObject({
+    classified: 0,
+    remaining: 1,
+    retryAfterSeconds: 60,
+  });
+});
+
+it('discards transient bodies and sanitizes errors when classification crashes after import', async () => {
+  let bodies: Map<string, unknown>;
+  m.sync.mockImplementation(async (_user, _account, _deadline, options) => {
+    bodies = options.bodies;
+    bodies.set('mail', { body: 'PRIVATE BODY', contentHash: 'hash' });
+    return { synced: 20, errors: 0, pending: false };
+  });
+  m.classify.mockRejectedValue(new Error('PRIVATE BODY in upstream response'));
+  await expect(processInboxBatch('u')).rejects.toThrow('Inbox batch could not complete');
+  expect(bodies!.size).toBe(0);
+  expect(m.signal).toHaveBeenCalled();
 });

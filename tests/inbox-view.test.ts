@@ -61,3 +61,29 @@ it('keeps restored summaries visible if background refresh fails', () => {
   mocks.query.mockReturnValue({ ...mocks.query(), isError: true, error: new Error('Offline') });
   expect(renderToStaticMarkup(React.createElement(InboxView))).toContain('Usable summary');
 });
+it('shows tagging progress while keeping unclassified summaries usable', () => {
+  const query = mocks.query();
+  mocks.query.mockReturnValue({
+    ...query,
+    data: {
+      ...query.data,
+      processing: { imported: 100, tagged: 34, remaining: 66, importing: false, paused: false },
+    },
+  });
+  const html = renderToStaticMarkup(React.createElement(InboxView));
+  expect(html).toContain('Tagging 34/100');
+  expect(html).toContain('Usable summary');
+});
+it('labels a growing import total without claiming the whole mailbox has been counted', () => {
+  const query = mocks.query();
+  mocks.query.mockReturnValue({
+    ...query,
+    data: {
+      ...query.data,
+      processing: { imported: 20, tagged: 20, remaining: 0, importing: true, paused: false },
+    },
+  });
+  const html = renderToStaticMarkup(React.createElement(InboxView));
+  expect(html).toContain('Importing mail');
+  expect(html).toContain('20 imported');
+});

@@ -111,7 +111,7 @@ it('rejects malformed, tampered and cross-scope cursors before database reads', 
 });
 it('counts only current matching classifications with the same tenant and workspace filters', async () => {
   const counts = await getInboxCounts(user, new URLSearchParams());
-  expect(counts).toEqual({ total: 55, needsTotal: 54, tagCounts: { a: 54 } });
+  expect(counts).toMatchObject({ total: 55, needsTotal: 54, tagCounts: { a: 54 } });
   expect(await getInboxCounts(user, new URLSearchParams({ tag: 'a' }))).toMatchObject({
     total: 54,
   });
@@ -153,7 +153,7 @@ it('hides retained non-inbox rows and stale content/model/legacy decisions from 
     expect(page.emails.find((e) => e.id === 'a-053')?.classifications).toEqual([]);
     expect(page.emails.find((e) => e.id === 'a-052')).toBeUndefined();
     expect(page.emails.find((e) => e.id === 'a-051')?.classifications).toEqual([]);
-    expect(await getInboxCounts(user, new URLSearchParams())).toEqual({
+    expect(await getInboxCounts(user, new URLSearchParams())).toMatchObject({
       total: 54,
       needsTotal: 50,
       tagCounts: { a: 50 },
@@ -171,7 +171,7 @@ it('invalidates current classifications when configured model revision changes',
         (e) => e.classifications.length === 0,
       ),
     ).toBe(true);
-    expect(await getInboxCounts(user, new URLSearchParams())).toEqual({
+    expect(await getInboxCounts(user, new URLSearchParams())).toMatchObject({
       total: 55,
       needsTotal: 0,
       tagCounts: {},
@@ -179,4 +179,17 @@ it('invalidates current classifications when configured model revision changes',
   } finally {
     vi.unstubAllEnvs();
   }
+});
+
+it('reports email progress independently of filters, using all current tag decisions', async () => {
+  const counts = await getInboxCounts(user, new URLSearchParams({ tag: 'a', search: 'no-match' }));
+  expect(counts.total).toBe(0);
+  expect(counts.processing).toMatchObject({
+    imported: 55,
+    tagged: 54,
+    remaining: 1,
+    importing: true,
+  });
+  const work = await getInboxCounts(user, new URLSearchParams({ workspace: 'WORK' }));
+  expect(work.processing).toMatchObject({ imported: 1, tagged: 0, remaining: 1 });
 });

@@ -1,5 +1,6 @@
 import 'server-only';
 import { db } from './db';
+import { bodyKey, type TransientBodies } from './transient-bodies';
 import { Prisma, type Tag } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { currentModelVersion, type ClassificationInput } from './classification-version';
@@ -193,15 +194,28 @@ async function saveWave(
   );
 }
 
+type ClassificationOptions = {
+  emailIds?: string[];
+  tagId?: string;
+  force?: boolean;
+  deadline?: number;
+  workspace?: WorkspaceId;
+  limit?: number;
+  bodies?: TransientBodies;
+};
 export async function classifyEmails(
   userId: string,
-  options: {
-    emailIds?: string[];
-    tagId?: string;
-    force?: boolean;
-    deadline?: number;
-    workspace?: WorkspaceId;
-  } = {},
+  options: ClassificationOptions = {},
+): Promise<BatchResult> {
+  const limit = options.limit ?? 100;
+  if (!Number.isInteger(limit) || limit < 0 || limit > 100)
+    throw new Error('Invalid classification batch limit');
+  return classifyBatch(userId, options, { remaining: limit });
+}
+async function classifyBatch(
+  userId: string,
+  options: ClassificationOptions,
+  budget: { remaining: number },
 ): Promise<BatchResult> {
   const deadline = options.deadline ?? Date.now() + 40000;
   if (!options.workspace) {
@@ -210,7 +224,7 @@ export async function classifyEmails(
       remaining = 0,
       retryAfterSeconds = 0;
     for (const workspace of workspaceIds) {
-      const result = await classifyEmails(userId, { ...options, workspace, deadline });
+      const result = await classifyBatch(userId, { ...options, workspace, deadline }, budget);
       classified += result.classified;
       errors += result.errors;
       remaining += result.remaining;
@@ -244,7 +258,7 @@ export async function classifyEmails(
     attempted = 0,
     retryAfterSeconds = await readCooldown();
   let unsaved = 0;
-  if (!retryAfterSeconds && Date.now() + 3000 < deadline) {
+  if (budget.remaining > 0 && !retryAfterSeconds && Date.now() + 3000 < deadline) {
     const selection = options.force
       ? Prisma.sql`e."userId"=${userId}::uuid AND e.workspace=${workspace}::"WorkspaceKind" AND e."inInbox"=true AND e."contentHash"<>'' ${options.emailIds ? Prisma.sql`AND e.id IN (${Prisma.join(options.emailIds.length ? options.emailIds : [''])})` : Prisma.empty}`
       : where;
@@ -252,7 +266,7 @@ export async function classifyEmails(
       EmailSnapshot[]
     >(Prisma.sql`SELECT e.id,e."accountId",e."providerMessageId",e.subject,e.sender,e.snippet,e."contentHash",e."firstClassifiedAt",e."inInbox",
       COALESCE((SELECT jsonb_agg(jsonb_build_object('tagId',c."tagId",'tagVersion',c."tagVersion",'contentHash',c."contentHash",'modelVersion',c."modelVersion")) FROM email_classifications c WHERE c."emailId"=e.id AND c."userId"=e."userId" AND c.workspace=e.workspace),'[]'::jsonb) AS classifications
-      FROM emails e WHERE ${selection} ORDER BY e."receivedAt" DESC,e.id DESC LIMIT 100`);
+      FROM emails e WHERE ${selection} ORDER BY e."receivedAt" DESC,e.id DESC LIMIT ${budget.remaining}`);
     const pending = emails
       .map((email) => ({ email, hash: email.contentHash }))
       .map((item) => ({
@@ -296,12 +310,21 @@ export async function classifyEmails(
       const outcomes = await Promise.all(
         wave.map(async (item) => {
           attempted++;
+          budget.remaining--;
           try {
-            const { provider, token } = await credentialsFor(item.email.accountId);
-            // Bodies are fetched per evaluation and discarded; they are never stored.
-            const body = await withProviderDeadline(deadline - 2500, () =>
-              fetchMessageText(provider, token, item.email.providerMessageId),
+            const cached = options.bodies?.get(
+              bodyKey(item.email.accountId, item.email.providerMessageId),
             );
+            let body: string | null;
+            if (cached && cached.contentHash === item.hash) {
+              body = cached.body;
+            } else {
+              // Retries and reclassification fetch on demand; bodies never cross steps.
+              const { provider, token } = await credentialsFor(item.email.accountId);
+              body = await withProviderDeadline(deadline - 2500, () =>
+                fetchMessageText(provider, token, item.email.providerMessageId),
+              );
+            }
             const results = await classifyEmailAgainstTags(
               { ...item.email, body },
               item.tags,

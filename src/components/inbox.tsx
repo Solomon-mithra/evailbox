@@ -178,6 +178,17 @@ export function InboxView() {
           {mutation.isPending ? 'Syncing…' : 'Sync now'}
         </Button>
       </div>
+      {data?.processing && (data.processing.importing || data.processing.remaining > 0) && (
+        <p role="status" aria-live="polite" className="section-caption">
+          {data.processing.paused && data.processing.remaining > 0
+            ? `Tagging paused · ${data.processing.tagged}/${data.processing.imported} complete. Progress is saved; retrying automatically.`
+            : data.processing.remaining > 0
+              ? `Tagging ${data.processing.tagged}/${data.processing.imported}…`
+              : 'Importing mail…'}
+          {data.processing.importing &&
+            ` · ${data.processing.imported} imported so far. More mail is loading.`}
+        </p>
+      )}
       <div className="inbox-toolbar">
         <div
           className="view-tabs"

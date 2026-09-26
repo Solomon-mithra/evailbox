@@ -1,4 +1,5 @@
 import 'server-only';
+import { WORK_BATCH_SIZE } from '../inngest/config';
 import { z } from 'zod';
 import { authHeaders, ProviderHttpError, requestJson } from './http';
 import type { ProviderEmail, SyncPage } from './types';
@@ -162,7 +163,7 @@ export async function fetchGmailPage(
   if (cursor.phase === 'initial') {
     const url = new URL(`${base}/messages`);
     url.search = new URLSearchParams({
-      maxResults: '25',
+      maxResults: String(WORK_BATCH_SIZE),
       labelIds: 'INBOX',
       q: `after:${cursor.after}`,
       ...(cursor.pageToken ? { pageToken: cursor.pageToken } : {}),
@@ -184,7 +185,7 @@ export async function fetchGmailPage(
   const url = new URL(`${base}/history`);
   url.search = new URLSearchParams({
     startHistoryId: cursor.historyId,
-    maxResults: '25',
+    maxResults: String(WORK_BATCH_SIZE),
     ...(cursor.pageToken ? { pageToken: cursor.pageToken } : {}),
   }).toString();
   let raw: unknown;

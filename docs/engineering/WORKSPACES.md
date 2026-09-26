@@ -4,13 +4,13 @@ Each user has two built-in spaces: Personal and Work. The sidebar switcher selec
 
 Accounts, messages, tags, match counts, searches, manual classification and account sync requests use the selected workspace. Tag names are unique per user and workspace, with up to 30 tags in each space. API selection uses `workspace=PERSONAL|WORK`, defaults to `PERSONAL` when omitted and rejects invalid values. The same mailbox can be connected independently in each space. OAuth carries the originating workspace in authenticated state, so switching while consent is open cannot attach an account to the wrong space.
 
-Notification preferences and account deletion remain account-wide. Background processing covers both spaces, but classification never mixes their mail and rules. New notification and digest links use `/inbox?email=…&workspace=…`; digest sections identify the workspace. Old email links without a workspace target Personal. Root links containing `email` or `workspace` redirect to `/inbox` with their parameters preserved.
+Refresh preferences and account deletion remain account-wide. Background processing covers both spaces, but classification never mixes their mail and rules. Inbox deep links use `/inbox?email=…&workspace=…`. Notifications and digests are retired. Old email links without a workspace target Personal. Root links containing `email` or `workspace` redirect to `/inbox` with their parameters preserved.
 
 ## Data migration
 
 The migration in `prisma/migrations/20260922000000_workspaces/migration.sql`, following the initial migration, adds a PERSONAL-defaulted enum to accounts, messages, tags and classifications. It preserves all existing rows. Composite foreign keys enforce matching user and workspace for account/email/tag associations, including privileged writes.
 
-Apply with `npm run db:migrate` against the intended live database before serving the updated application. Coordinate migration and application rollout because the mailbox unique key changes. This change has not been applied to any external database or deployed by the workspace feature task.
+Apply with `npm run db:migrate` against the intended live database before serving the updated application. Coordinate migration and application rollout because the mailbox unique key changes. The previous committed status records a hosted migration; consult [current status](../STATUS.md) and verify the intended deployment rather than relying on the original rollout notes.
 
 ## Browser-storage compatibility
 

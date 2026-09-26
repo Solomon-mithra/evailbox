@@ -1,4 +1,5 @@
 import 'server-only';
+import { WORK_BATCH_SIZE } from '../inngest/config';
 import { z } from 'zod';
 import { authHeaders, ProviderHttpError, requestJson } from './http';
 import type { ProviderEmail, SyncPage } from './types';
@@ -61,8 +62,7 @@ export async function fetchOutlookPage(
   token: string,
   serialized: string | null,
 ): Promise<SyncPage> {
-  const initial =
-    'https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$select=id,subject,from,sender,bodyPreview,body,receivedDateTime,isRead,webLink&$top=25';
+  const initial = `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$select=id,subject,from,sender,bodyPreview,body,receivedDateTime,isRead,webLink&$top=${WORK_BATCH_SIZE}`;
   const url = serialized
     ? trustedDeltaUrl(cursorSchema.parse(JSON.parse(serialized)).url)
     : initial;
@@ -71,7 +71,7 @@ export async function fetchOutlookPage(
     raw = await requestJson(url, {
       headers: {
         ...authHeaders(token),
-        Prefer: 'odata.maxpagesize=25, outlook.body-content-type="text", IdType="ImmutableId"',
+        Prefer: `odata.maxpagesize=${WORK_BATCH_SIZE}, outlook.body-content-type="text", IdType="ImmutableId"`,
       },
     });
   } catch (error) {

@@ -14,7 +14,7 @@ evailbox's public homepage has a canonical URL, descriptive title, Open Graph an
 | `/icon-192.png`, `/icon-512.png` | Application icons referenced by the manifest                                                       |
 | `/manifest.webmanifest`          | evailbox identity, colors, scope and `/inbox` launch URL                                           |
 | `/robots.txt`                    | Allows public crawling; disallows inbox, tags, accounts, settings, auth, unsubscribe and API paths |
-| `/sitemap.xml`                   | Contains only the public homepage                                                                  |
+| `/sitemap.xml`                   | Contains the public homepage and pricing page                                                      |
 | `/llms.txt`                      | Concise public product context and links for AI readers                                            |
 | `/index.md`                      | Markdown product overview, account workflow and data handling                                      |
 
@@ -30,4 +30,4 @@ Run `npm run generate:brand-assets` after changing the artwork in `scripts/gener
 
 On 2026-09-21, 121 tests across 14 files, lint and the demo production build passed. The generated share image was visually inspected. Local production HTTP requests using Twitterbot, Slackbot and Facebook crawler user agents verified metadata in the HTML head, canonical/image URLs, JSON-LD and corrected account-aware copy. Discovery files returned 200 with the expected content types; icon signatures and PNG dimensions were checked. App routes retained noindex and had no homepage canonical.
 
-This is local production-build evidence, not a deployed preview or a platform-cache refresh. After deploying the approved revision, verify the live root URL and its image/discovery routes without cookies. Recheck after changing the public domain and request a fresh scrape in the relevant sharing platform if an earlier preview is cached. Existing Vercel deployment blockers and remaining live acceptance are tracked in [STATUS.md](../phases/STATUS.md).
+This is local production-build evidence, not a deployed preview or a platform-cache refresh. After deploying the approved revision, verify the live root URL and its image/discovery routes without cookies. Recheck after changing the public domain and request a fresh scrape in the relevant sharing platform if an earlier preview is cached. Current activation observations and remaining live acceptance are tracked in [STATUS.md](../STATUS.md).

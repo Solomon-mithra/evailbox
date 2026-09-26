@@ -1,13 +1,20 @@
 import 'server-only';
 import { db } from '../db';
+import { ApiError } from '../errors';
+import type { TransientBodies } from '../transient-bodies';
+import { WORK_BATCH_SIZE } from './config';
 import { syncMailboxes } from '../sync';
 import { classifyEmails } from '../classification';
 import { withUserWorkLease } from '../work-queue';
 import { signalInboxChange } from '../realtime';
 
-export async function fetchWorkBatch(userId: string) {
+export async function fetchWorkBatch(
+  userId: string,
+  bodies?: TransientBodies,
+  deadline = Date.now() + 40_000,
+) {
   // Mailbox leases/checkpoints protect fetches; AI cooldown must not stop mail ingestion.
-  const result = await syncMailboxes(userId, undefined, Date.now() + 40_000);
+  const result = await syncMailboxes(userId, undefined, deadline, { maxPages: 1, bodies });
   try {
     await signalInboxChange(userId);
   } catch {
@@ -16,8 +23,40 @@ export async function fetchWorkBatch(userId: string) {
   return result;
 }
 
-export async function classifyWorkBatch(userId: string) {
-  return withUserWorkLease(userId, () => classifyEmails(userId, { deadline: Date.now() + 40_000 }));
+export async function classifyWorkBatch(
+  userId: string,
+  bodies?: TransientBodies,
+  deadline = Date.now() + 40_000,
+) {
+  return withUserWorkLease(userId, () =>
+    classifyEmails(userId, { deadline, limit: WORK_BATCH_SIZE, bodies }),
+  );
+}
+
+/** A single durable step: only numeric progress may leave this function. */
+export async function processInboxBatch(userId: string) {
+  const bodies: TransientBodies = new Map();
+  const deadline = Date.now() + 40_000;
+  try {
+    const sync = await fetchWorkBatch(userId, bodies, deadline);
+    let classification;
+    try {
+      classification = await classifyWorkBatch(userId, bodies, deadline);
+    } catch (error) {
+      if (
+        !(error instanceof ApiError) ||
+        !['WORK_COOLDOWN', 'WORK_IN_PROGRESS'].includes(error.code)
+      )
+        throw error;
+      classification = { classified: 0, errors: 0, remaining: 1, retryAfterSeconds: 60 };
+    }
+    return { sync, classification };
+  } catch {
+    // Provider/SDK/Prisma errors can embed private content. Never serialize them into Inngest.
+    throw new Error('Inbox batch could not complete');
+  } finally {
+    bodies.clear();
+  }
 }
 
 export async function finishWorkBatch(
