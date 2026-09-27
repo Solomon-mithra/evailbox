@@ -57,6 +57,16 @@ export async function fetchMessageContent(
   const message = z
     .object({ payload: z.unknown() })
     .parse(await requestJson(`${base}?format=full`, { headers: authHeaders(token) }));
+  return decodeGmailContent(token, messageId, message.payload);
+}
+
+/** Decode a payload already returned by a full message or conversation request. */
+export async function decodeGmailContent(
+  token: string,
+  messageId: string,
+  payload: unknown,
+): Promise<MessageContent> {
+  const base = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}`;
   const candidates: z.infer<typeof partSchema>[] = [];
   let visited = 0;
   function visit(value: unknown, depth: number) {
@@ -75,7 +85,7 @@ export async function fetchMessageContent(
     if (part.mimeType === 'text/html' || part.mimeType === 'text/plain') candidates.push(part);
     for (const child of part.parts ?? []) visit(child, depth + 1);
   }
-  visit(message.payload, 0);
+  visit(payload, 0);
   // The HTML and text in multipart/alternative represent the same message.
   const part = candidates.find((p) => p.mimeType === 'text/html') ?? candidates[0];
   if (!part) throw new Error('Message has no readable body');

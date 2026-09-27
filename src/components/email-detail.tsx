@@ -1,100 +1,140 @@
 'use client';
-import { useRef, useState } from 'react';
-import { ExternalLink, Check, Undo2, Sparkles, Reply, ReplyAll, Mail, Archive } from 'lucide-react';
-import { Dialog } from './ui/dialog';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ArrowLeft,
+  ExternalLink,
+  Check,
+  Undo2,
+  Sparkles,
+  Reply,
+  ReplyAll,
+  Mail,
+  Archive,
+  MoreHorizontal,
+} from 'lucide-react';
+import { DropdownMenu } from 'radix-ui';
 import { Button } from './ui/button';
 import type { Email } from '@/types';
 import { useAction } from '@/hooks/useFetch';
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
 import { useDemo, usePrivateCache } from './providers';
-import { emailContentQuery, emailDetailQuery } from '@/lib/email-preload';
+import { emailContentQuery, emailDetailQuery, emailThreadQuery } from '@/lib/email-preload';
 import { ReplyComposer, type ReplyComposerHandle } from './reply-composer';
+import { EmailMessageFrame } from './email-message-frame';
+import { useReaderNavigation } from './reader-navigation';
 import type { ReplyMode } from '@/lib/providers/actions';
 import { useWorkspaceSelection } from './workspace-selection';
 import type { WorkspaceId } from '@/lib/workspace-selection';
 
-function MessageBody({ email, workspace }: { email: Email; workspace: WorkspaceId }) {
+function MessageHeader({
+  message,
+}: {
+  message: Pick<Email, 'sender' | 'senderName' | 'receivedAt'>;
+}) {
+  return (
+    <header className="email-thread-header">
+      <span className="sender-avatar" aria-hidden="true">
+        {(message.senderName || message.sender)
+          .split(' ')
+          .slice(0, 2)
+          .map((name) => name[0])
+          .join('')}
+      </span>
+      <div className="email-thread-sender">
+        <strong>{message.senderName || message.sender}</strong>
+        {message.senderName && <span>{message.sender}</span>}
+      </div>
+      <time dateTime={message.receivedAt}>
+        {new Date(message.receivedAt).toLocaleString(undefined, {
+          dateStyle: 'medium',
+          timeStyle: 'short',
+        })}
+      </time>
+    </header>
+  );
+}
+
+function MessageBody({
+  email,
+  workspace,
+  images,
+}: {
+  email: Email;
+  workspace: WorkspaceId;
+  images: boolean;
+}) {
   const { user, ready } = usePrivateCache();
-  const [images, setImages] = useState(true);
   const content = useQuery({
     ...emailContentQuery({ userId: user?.id ?? '', workspace }, email.id, images),
     enabled: !!user && ready,
   });
-  return (
-    <section className="email-message" aria-label="Message content">
-      <div className="email-reader-toolbar">
-        <span>
-          {content.isError && !content.data
-            ? 'Message unavailable.'
-            : !content.data
-              ? 'Loading message…'
-              : images
-                ? 'Images enabled'
-                : 'Images hidden'}
-        </span>
-        <button type="button" className="email-image-toggle" onClick={() => setImages(!images)}>
-          {images ? 'Hide images' : 'Load images'}
-        </button>
-      </div>
-      {content.data ? (
-        <iframe
-          key={String(images)}
-          className="email-message-frame"
-          title="Email message"
-          srcDoc={content.data.html}
-          sandbox="allow-popups allow-popups-to-escape-sandbox"
-          referrerPolicy="no-referrer"
-        />
+  return content.data ? (
+    <EmailMessageFrame html={content.data.html} />
+  ) : (
+    <div className="email-message-placeholder" role="status">
+      {content.isError ? (
+        <>
+          <p>This message couldn’t load.</p>
+          <Button variant="outline" onClick={() => void content.refetch()}>
+            Try again
+          </Button>
+        </>
       ) : (
-        <div className="email-message-placeholder" role="status">
-          {content.isError ? (
-            <Button variant="outline" onClick={() => void content.refetch()}>
-              Try again
-            </Button>
-          ) : (
-            'Loading message…'
-          )}
-        </div>
+        'Loading message…'
       )}
-    </section>
+    </div>
   );
 }
+
 export function EmailDetail({
   email: selected,
   onClose,
+  backLabel = 'Back to inbox',
 }: {
-  email: Email | null;
+  email: Email;
   onClose: () => void;
+  backLabel?: string;
 }) {
   const { workspace } = useWorkspaceSelection();
+  const { register } = useReaderNavigation();
   const mutation = useAction(),
     demo = useDemo();
   const { user, ready } = usePrivateCache();
+  const [images, setImages] = useState(true);
   const detail = useQuery({
-    ...emailDetailQuery({ userId: user?.id ?? '', workspace }, selected?.id ?? ''),
-    enabled: !!user && ready && !!selected && !demo,
+    ...emailDetailQuery({ userId: user?.id ?? '', workspace }, selected.id),
+    enabled: !!user && ready && !demo,
   });
+  const thread = useQuery({
+    ...emailThreadQuery({ userId: user?.id ?? '', workspace }, selected.id, images),
+    enabled: !!user && ready && !demo,
+  });
+  const refreshThread = thread.refetch;
+  useEffect(() => {
+    if (user?.id && ready && !demo) void refreshThread({ cancelRefetch: false });
+  }, [refreshThread, user?.id, ready, demo, workspace, selected.id, images]);
   const source = detail.data ?? selected;
   const [readState, setReadState] = useState<{ id: string; isRead: boolean } | null>(null);
-  const email =
-    source && readState?.id === source.id ? { ...source, isRead: readState.isRead } : source;
-  const [reply, setReply] = useState<{ emailId: string; mode: ReplyMode } | null>(null);
+  const email = readState?.id === source.id ? { ...source, isRead: readState.isRead } : source;
+  const [reply, setReply] = useState<ReplyMode | null>(null);
   const composer = useRef<ReplyComposerHandle>(null);
-  const close = async () => {
+  const close = useCallback(async () => {
     if (composer.current && !(await composer.current.save())) {
-      toast.error('Your draft could not be saved. Keep this window open and retry.');
-      return;
+      toast.error('Your draft could not be saved. Please retry before leaving.');
+      return false;
     }
-    setReply(null);
-    setReadState(null);
     onClose();
-  };
-  const changeMessage = async (action: 'read' | 'unread' | 'archive') => {
+    return true;
+  }, [onClose]);
+
+  useEffect(() => register(close), [register, close]);
+
+  async function changeMessage(action: 'read' | 'unread' | 'archive') {
     if (composer.current && !(await composer.current.save())) return;
     try {
-      await mutation.mutateAsync({ path: `/api/emails/${email!.id}/actions`, body: { action } });
-      if (action !== 'archive') setReadState({ id: email!.id, isRead: action === 'read' });
+      await mutation.mutateAsync({ path: `/api/emails/${email.id}/actions`, body: { action } });
+      if (action !== 'archive') setReadState({ id: email.id, isRead: action === 'read' });
       toast.success(
         demo
           ? 'Demo mailbox updated. No provider was contacted.'
@@ -108,120 +148,200 @@ export function EmailDetail({
     } catch (error) {
       toast.error((error as Error).message);
     }
-  };
-  return (
-    <Dialog
-      open={!!email}
-      onOpenChange={(v) => {
-        if (!v) void close();
+  }
+  async function markHandled() {
+    if (composer.current && !(await composer.current.save())) return;
+    try {
+      await mutation.mutateAsync({
+        path: `/api/emails/${email.id}`,
+        method: 'PATCH',
+        body: { handled: !email.handled },
+      });
+      toast.success(email.handled ? 'Moved back to your inbox' : 'Marked as handled');
+      await close();
+    } catch (error) {
+      toast.error((error as Error).message);
+    }
+  }
+  async function classify() {
+    if (composer.current && !(await composer.current.save())) return;
+    try {
+      const result = await mutation.mutateAsync({
+        path: '/api/classify',
+        body: { emailId: email.id },
+      });
+      if (result.errors) toast.error('Some classifications failed. Try again.');
+      else toast.success('Classification complete');
+    } catch (error) {
+      toast.error((error as Error).message);
+    }
+  }
+  const messages = thread.data?.messages;
+  const replyControls = reply ? (
+    <ReplyComposer
+      key={`${workspace}:${email.id}`}
+      ref={composer}
+      email={email}
+      initialMode={reply}
+      onSent={() => {
+        if (!demo) void refreshThread();
       }}
-      title={email?.subject ?? 'Email'}
-      description={email ? `From ${email.sender}` : undefined}
-      wide
-      className="email-reader"
-    >
-      {email && (
-        <>
-          <div className="email-meta">
-            <span>{email.senderName}</span>
-            <time dateTime={email.receivedAt}>{new Date(email.receivedAt).toLocaleString()}</time>
-          </div>
-          {demo ? (
-            <div className="email-body">{email.body || email.snippet}</div>
+    />
+  ) : (
+    <div className="email-reply-actions">
+      <Button
+        variant="outline"
+        aria-label={`Reply to ${email.senderName || email.sender}`}
+        onClick={() => setReply('reply')}
+      >
+        <Reply size={16} />
+        Reply
+      </Button>
+      <Button
+        variant="ghost"
+        aria-label={`Reply all to message from ${email.senderName || email.sender}`}
+        onClick={() => setReply('reply-all')}
+      >
+        <ReplyAll size={16} />
+        Reply all
+      </Button>
+    </div>
+  );
+  return (
+    <section className="email-reader" aria-labelledby="email-reader-title">
+      <div className="email-reader-actions">
+        <Button variant="ghost" aria-label={backLabel} onClick={() => void close()}>
+          <ArrowLeft size={18} />
+          Back
+        </Button>
+        <div className="email-reader-mail-actions">
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Archive"
+            title="Archive"
+            disabled={mutation.isPending}
+            onClick={() => void changeMessage('archive')}
+          >
+            <Archive size={18} />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={email.isRead ? 'Mark unread' : 'Mark read'}
+            title={email.isRead ? 'Mark unread' : 'Mark read'}
+            disabled={mutation.isPending}
+            onClick={() => void changeMessage(email.isRead ? 'unread' : 'read')}
+          >
+            <Mail size={18} />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={email.handled ? 'Mark unhandled' : 'Mark as handled'}
+            title={email.handled ? 'Mark unhandled' : 'Mark as handled'}
+            disabled={mutation.isPending}
+            onClick={() => void markHandled()}
+          >
+            {email.handled ? <Undo2 size={18} /> : <Check size={18} />}
+          </Button>
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger className="icon-button" aria-label="More email actions">
+              <MoreHorizontal size={19} />
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content className="dropdown-content" align="end">
+                <DropdownMenu.Item asChild>
+                  <a href={email.webUrl} target="_blank" rel="noreferrer">
+                    <ExternalLink size={16} />
+                    Open in provider
+                  </a>
+                </DropdownMenu.Item>
+                <DropdownMenu.Item disabled={mutation.isPending} onSelect={() => void classify()}>
+                  <Sparkles size={16} />
+                  Classify
+                </DropdownMenu.Item>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
+        </div>
+      </div>
+      <div className="email-reader-content">
+        <h1 id="email-reader-title" className="email-reader-title" tabIndex={-1}>
+          {email.subject || '(No subject)'}
+        </h1>
+        <div className="email-conversation-meta">
+          <span>
+            {messages && messages.length > 1 ? `${messages.length} messages` : 'Conversation'}
+          </span>
+          {!demo && (
+            <button
+              type="button"
+              className="email-image-toggle"
+              onClick={() => setImages((value) => !value)}
+            >
+              {images ? 'Hide images' : 'Load images'}
+            </button>
+          )}
+        </div>
+        <div className="email-conversation" aria-label="Email conversation">
+          {messages?.length ? (
+            messages.map((message) => (
+              <article
+                key={message.current ? `selected:${email.id}` : `thread:${message.id}`}
+                className="email-thread-message"
+              >
+                <MessageHeader message={message} />
+                {message.current && message.fallback ? (
+                  <MessageBody email={email} workspace={workspace} images={images} />
+                ) : (
+                  <EmailMessageFrame
+                    html={message.html}
+                    title={`Message from ${message.senderName || message.sender}`}
+                  />
+                )}
+                {message.current && replyControls}
+              </article>
+            ))
           ) : (
-            <MessageBody key={`${workspace}:${email.id}`} email={email} workspace={workspace} />
+            <article key={`selected:${email.id}`} className="email-thread-message">
+              <MessageHeader message={email} />
+              {demo ? (
+                <div className="email-body">{email.body || email.snippet}</div>
+              ) : (
+                <MessageBody email={email} workspace={workspace} images={images} />
+              )}
+              {replyControls}
+            </article>
           )}
-          <div className="dialog-actions wrap">
-            <Button
-              variant="outline"
-              disabled={reply?.emailId === email.id}
-              onClick={() => setReply({ emailId: email.id, mode: 'reply' })}
-            >
-              <Reply size={15} />
-              Reply
-            </Button>
-            <Button
-              variant="ghost"
-              disabled={reply?.emailId === email.id}
-              onClick={() => setReply({ emailId: email.id, mode: 'reply-all' })}
-            >
-              <ReplyAll size={15} />
-              Reply all
-            </Button>
-            <Button
-              variant="ghost"
-              disabled={mutation.isPending}
-              onClick={() => void changeMessage(email.isRead ? 'unread' : 'read')}
-            >
-              <Mail size={15} />
-              {email.isRead ? 'Mark unread' : 'Mark read'}
-            </Button>
-            <Button
-              variant="ghost"
-              disabled={mutation.isPending}
-              onClick={() => void changeMessage('archive')}
-            >
-              <Archive size={15} />
-              Archive
-            </Button>
-          </div>
-          {reply?.emailId === email.id && (
-            <ReplyComposer
-              key={`${workspace}:${email.id}`}
-              ref={composer}
-              email={email}
-              initialMode={reply.mode}
-            />
-          )}
-          <div className="dialog-actions wrap">
-            <Button
-              variant="ghost"
-              disabled={mutation.isPending}
-              onClick={async () => {
-                try {
-                  const result = await mutation.mutateAsync({
-                    path: '/api/classify',
-                    body: { emailId: email.id },
-                  });
-                  if (result.errors) toast.error('Some classifications failed. Try again.');
-                  else toast.success('Classification complete');
-                  await close();
-                } catch (e) {
-                  toast.error((e as Error).message);
-                }
-              }}
-            >
-              <Sparkles size={16} />
-              Classify
-            </Button>
-            <Button variant="outline" asChild>
-              <a href={email.webUrl} target="_blank" rel="noreferrer">
-                Open in provider
-                <ExternalLink size={15} />
-              </a>
-            </Button>
-            <Button
-              disabled={mutation.isPending}
-              onClick={async () => {
-                try {
-                  await mutation.mutateAsync({
-                    path: `/api/emails/${email.id}`,
-                    method: 'PATCH',
-                    body: { handled: !email.handled },
-                  });
-                  toast.success(email.handled ? 'Moved back to your inbox' : 'Marked as handled');
-                  await close();
-                } catch (e) {
-                  toast.error((e as Error).message);
-                }
-              }}
-            >
-              {email.handled ? <Undo2 size={16} /> : <Check size={16} />}{' '}
-              {email.handled ? 'Mark unhandled' : 'Mark as handled'}
-            </Button>
-          </div>
-        </>
-      )}
-    </Dialog>
+        </div>
+        {!demo && !thread.data && (
+          <p className="email-thread-status" role="status">
+            {thread.isError ? (
+              <>
+                Earlier replies couldn’t load.{' '}
+                <button className="text-link" onClick={() => void thread.refetch()}>
+                  Try again
+                </button>
+              </>
+            ) : (
+              'Loading conversation…'
+            )}
+          </p>
+        )}
+        {thread.data?.partial && (
+          <p className="email-thread-status" role="status">
+            Some messages are unavailable.{' '}
+            <button className="text-link" onClick={() => void thread.refetch()}>
+              Try again
+            </button>
+            <a href={email.webUrl} target="_blank" rel="noreferrer">
+              View the full conversation in your mailbox
+            </a>
+            .
+          </p>
+        )}
+      </div>
+    </section>
   );
 }

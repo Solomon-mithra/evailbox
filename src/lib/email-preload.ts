@@ -2,6 +2,7 @@ import { queryOptions, type QueryClient } from '@tanstack/react-query';
 import { api } from './api';
 import { workspacePath, type WorkspaceId } from './workspace-selection';
 import type { Email } from '@/types';
+import type { EmailThread } from '@/types/email-thread';
 
 interface EmailScope {
   userId: string;
@@ -70,6 +71,27 @@ export function emailContentQuery(scope: EmailScope, id: string, images = true) 
     // invalidations must not reload the iframe while the user is reading it.
     // A provider outage can return a snippet; opening that must retry the message.
     staleTime: (query) => (query.state.data?.fallback ? 0 : 'static'),
+    gcTime: lifetime,
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
+}
+
+export function emailThreadQuery(scope: EmailScope, id: string, images = true) {
+  return queryOptions({
+    queryKey: ['private', scope.userId, scope.workspace, 'thread', id, images],
+    queryFn: ({ signal }) =>
+      api.get<EmailThread>(
+        workspacePath(
+          `/api/emails/${encodeURIComponent(id)}/thread?images=${images ? '1' : '0'}`,
+          scope.workspace,
+        ),
+        signal,
+      ),
+    // Refresh on reader open or a sent reply, never on background inbox updates.
+    // Replacing sanitized documents while reading would reset iframe heights.
+    staleTime: 'static',
     gcTime: lifetime,
     retry: false,
     refetchOnWindowFocus: false,

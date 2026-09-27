@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { QueryClient, QueryObserver, dehydrate } from '@tanstack/react-query';
-import { createEmailIntent, emailContentQuery, preloadEmail } from '@/lib/email-preload';
+import {
+  createEmailIntent,
+  emailContentQuery,
+  emailThreadQuery,
+  preloadEmail,
+} from '@/lib/email-preload';
 import { cacheBuster, sanitizeCache } from '@/lib/query-cache';
 
 const scope = { userId: 'alice', workspace: 'PERSONAL' as const };
@@ -117,6 +122,34 @@ it('does not reload an open message when background tagging refreshes the inbox'
     await client.invalidateQueries({ queryKey: ['private', scope.userId, scope.workspace] });
     await client.fetchQuery(options);
     expect(fetch).toHaveBeenCalledTimes(1);
+  } finally {
+    unsubscribe();
+  }
+});
+
+it('keeps conversations private and stable until an explicit refresh', async () => {
+  vi.mocked(fetch).mockResolvedValue(Response.json({ data: { messages: [], partial: false } }));
+  const options = emailThreadQuery(scope, 'mail');
+  await client.fetchQuery(options);
+  const observer = new QueryObserver(client, options);
+  const unsubscribe = observer.subscribe(() => {});
+  try {
+    await client.invalidateQueries({ queryKey: ['private', scope.userId, scope.workspace] });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await observer.refetch();
+    expect(fetch).toHaveBeenCalledTimes(2);
+    const saved = sanitizeCache(
+      { timestamp: Date.now(), buster: cacheBuster(scope), clientState: dehydrate(client) },
+      scope,
+    );
+    expect(saved?.clientState.queries).toEqual([]);
+    expect(
+      client.getQueryData(emailThreadQuery({ ...scope, workspace: 'WORK' }, 'mail').queryKey),
+    ).toBeUndefined();
+    expect(
+      client.getQueryData(emailThreadQuery({ ...scope, userId: 'bob' }, 'mail').queryKey),
+    ).toBeUndefined();
+    expect(client.getQueryData(emailThreadQuery(scope, 'mail', false).queryKey)).toBeUndefined();
   } finally {
     unsubscribe();
   }

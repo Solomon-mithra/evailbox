@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Plus, Sparkles, Pencil, Trash2 } from 'lucide-react';
 import { useWorkspace, useAction } from '@/hooks/useFetch';
+import { useEmailReader } from '@/hooks/useEmailReader';
 import { Button } from './ui/button';
 import { TagBadge } from './ui/badge';
 import { Skeleton } from './ui/loader';
@@ -13,7 +14,7 @@ import { ConfirmDialog } from './confirm-dialog';
 import { EmailDetail } from './email-detail';
 import { EmailRow } from './inbox';
 import { EmptyState, ErrorState } from './states';
-import type { Tag, Email } from '@/types';
+import type { Tag } from '@/types';
 import { toast } from 'sonner';
 import { TAG_HISTORY_LIMIT, TAG_CHECK_NOTICE } from '@/lib/tag-policy';
 export function TagsView({ tagId }: { tagId?: string }) {
@@ -27,8 +28,8 @@ function TagsViewContent({ tagId }: { tagId?: string }) {
     mutation = useAction();
   const [editing, setEditing] = useState<Tag | undefined>(),
     [formOpen, setFormOpen] = useState(false),
-    [deleting, setDeleting] = useState<Tag | null>(null),
-    [selected, setSelected] = useState<Email | null>(null);
+    [deleting, setDeleting] = useState<Tag | null>(null);
+  const { selected, open: setSelected, close: closeReader } = useEmailReader();
   const tag = query.data?.tags.find((t) => t.id === tagId);
   async function run() {
     try {
@@ -51,7 +52,7 @@ function TagsViewContent({ tagId }: { tagId?: string }) {
     }
   }
   return (
-    <>
+    <div className={selected ? 'email-reader-open' : undefined}>
       {tagId && (
         <Link href="/tags" className="back-link">
           ← All tags
@@ -227,7 +228,7 @@ function TagsViewContent({ tagId }: { tagId?: string }) {
           if (tagId) router.push('/tags');
         }}
       />
-      <EmailDetail email={selected} onClose={() => setSelected(null)} />
-    </>
+      {selected && <EmailDetail email={selected} onClose={closeReader} backLabel="Back to tag" />}
+    </div>
   );
 }

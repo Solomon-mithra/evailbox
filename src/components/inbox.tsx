@@ -14,6 +14,7 @@ import Link from 'next/link';
 import { toast } from 'sonner';
 import { useInboxWorkspace, useAction } from '@/hooks/useFetch';
 import { useEmailPreload } from '@/hooks/useEmailPreload';
+import { useEmailReader } from '@/hooks/useEmailReader';
 import { useDemo } from './providers';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -85,8 +86,8 @@ export function InboxView() {
   const [search, setSearch] = useState(''),
     [debounced, setDebounced] = useState(''),
     [filters, setFilters] = useState<Filters>({ range: 'all', page: 0 }),
-    [selected, setSelected] = useState<Email | null>(null),
     [view, setView] = useState<'overview' | 'all'>('overview');
+  const { selected, open: setSelected, close: closeReader } = useEmailReader();
   const [cursors, setCursors] = useState<(string | undefined)[]>([undefined]);
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -127,7 +128,7 @@ export function InboxView() {
         .catch(() => toast.error('This email is unavailable.'));
     select(workspace);
     window.history.replaceState(null, '', window.location.pathname);
-  }, [data, demo, workspace, select]);
+  }, [data, demo, workspace, select, setSelected]);
   const change = (key: keyof Filters, value: string) => {
     setCursors([undefined]);
     setFilters((f) => ({ ...f, [key]: value, page: 0 }));
@@ -177,7 +178,7 @@ export function InboxView() {
     }
   }
   return (
-    <>
+    <div className={selected ? 'email-reader-open' : undefined}>
       <div className="page-heading">
         <div>
           <h1>Inbox</h1>
@@ -493,8 +494,8 @@ export function InboxView() {
           )
         )}
       </div>
-      <EmailDetail email={selected} onClose={() => setSelected(null)} />
-    </>
+      {selected && <EmailDetail email={selected} onClose={closeReader} />}
+    </div>
   );
 }
 function TagPill({ tag, count }: { tag: Tag; count?: number }) {

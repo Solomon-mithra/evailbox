@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { ReaderLink as Link, useReaderNavigation } from './reader-navigation';
 import { usePathname } from 'next/navigation';
 import { Inbox, FilePenLine, Tags, Layers2, Settings2, LogOut, Menu, X, Plus } from 'lucide-react';
 import { Dialog } from 'radix-ui';
@@ -21,6 +21,7 @@ const links = [
 ];
 
 function NavigationContent({ onNavigate }: { onNavigate?: () => void }) {
+  const { beforeNavigate } = useReaderNavigation();
   const pathname = usePathname();
   const demo = useDemo();
   const { data } = useWorkspaceMetadata();
@@ -29,7 +30,7 @@ function NavigationContent({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <>
-      <Link href="/inbox" className="brand" onClick={onNavigate}>
+      <Link href="/inbox" className="brand" onNavigate={onNavigate}>
         <span className="brand-mark">
           <BrandMark size={34} />
         </span>
@@ -44,7 +45,7 @@ function NavigationContent({ onNavigate }: { onNavigate?: () => void }) {
               <Link
                 key={href}
                 href={href}
-                onClick={onNavigate}
+                onNavigate={onNavigate}
                 aria-current={active ? 'page' : undefined}
                 className={`nav-link ${active ? 'active' : ''}`}
               >
@@ -57,7 +58,12 @@ function NavigationContent({ onNavigate }: { onNavigate?: () => void }) {
         </nav>
         <div className="sidebar-section-label">
           Your tags
-          <Link href="/tags" className="icon-button" aria-label="Manage tags" onClick={onNavigate}>
+          <Link
+            href="/tags"
+            className="icon-button"
+            aria-label="Manage tags"
+            onNavigate={onNavigate}
+          >
             <Plus size={16} />
           </Link>
         </div>
@@ -68,7 +74,7 @@ function NavigationContent({ onNavigate }: { onNavigate?: () => void }) {
               key={tag.id}
               aria-current={pathname === `/tags/${tag.id}` ? 'page' : undefined}
               className={`nav-tag ${pathname === `/tags/${tag.id}` ? 'active' : ''}`}
-              onClick={onNavigate}
+              onNavigate={onNavigate}
             >
               <span className={`tag-dot dot-${tag.priority.toLowerCase()}`} />
               <span>{tag.name}</span>
@@ -92,11 +98,14 @@ function NavigationContent({ onNavigate }: { onNavigate?: () => void }) {
             className="icon-button"
             aria-label="Sign out"
             title="Sign out"
-            onClick={() =>
-              demo
-                ? toast.info('This is a demo workspace. No account is signed in.')
-                : void signOut().catch((e) => toast.error(e.message))
-            }
+            onClick={async () => {
+              if (!(await beforeNavigate())) return;
+              if (demo) {
+                toast.info('This is a demo workspace. No account is signed in.');
+                return;
+              }
+              await signOut().catch((error) => toast.error(error.message));
+            }}
           >
             <LogOut size={17} />
           </button>

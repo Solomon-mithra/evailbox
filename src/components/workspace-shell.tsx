@@ -9,6 +9,7 @@ import { Button } from './ui/button';
 import type { ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import { ChevronRight, LockKeyhole } from 'lucide-react';
+import { ReaderNavigationProvider } from './reader-navigation';
 export function WorkspaceShell({ children }: { children: ReactNode }) {
   const { workspace, name } = useWorkspaceSelection();
   const pathname = usePathname();
@@ -42,32 +43,34 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
     );
   return (
     <PrivateWorkspace user={auth.data!}>
-      <div className="app-shell">
-        <Navigation />
-        <div className="main-shell">
-          <div className="topbar">
-            <span className="workspace-crumb">
-              {name} <ChevronRight size={13} /> <strong>{section}</strong>
-            </span>
-            <span className="topbar-right">
-              {demo ? (
-                <>
-                  <span className="demo-pill">Demo workspace</span>
-                  <span className="hide-mobile">Sample emails & scores</span>
-                </>
-              ) : (
-                <>
-                  <LockKeyhole size={13} />
-                  Private workspace
-                </>
-              )}
-            </span>
+      <ReaderNavigationProvider>
+        <div className="app-shell">
+          <Navigation />
+          <div className="main-shell">
+            <div className="topbar">
+              <span className="workspace-crumb">
+                {name} <ChevronRight size={13} /> <strong>{section}</strong>
+              </span>
+              <span className="topbar-right">
+                {demo ? (
+                  <>
+                    <span className="demo-pill">Demo workspace</span>
+                    <span className="hide-mobile">Sample emails & scores</span>
+                  </>
+                ) : (
+                  <>
+                    <LockKeyhole size={13} />
+                    Private workspace
+                  </>
+                )}
+              </span>
+            </div>
+            <main key={workspace} id="main-content" className="main-content" tabIndex={-1}>
+              {children}
+            </main>
           </div>
-          <main key={workspace} id="main-content" className="main-content" tabIndex={-1}>
-            {children}
-          </main>
         </div>
-      </div>
+      </ReaderNavigationProvider>
     </PrivateWorkspace>
   );
 }

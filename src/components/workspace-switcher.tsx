@@ -4,9 +4,11 @@ import { BriefcaseBusiness, UserRound, ChevronsUpDown, Check } from 'lucide-reac
 import { usePathname, useRouter } from 'next/navigation';
 import { useWorkspaceSelection } from './workspace-selection';
 import { workspaceIds, workspaceNames, type WorkspaceId } from '@/lib/workspace-selection';
+import { useReaderNavigation } from './reader-navigation';
 
 export function WorkspaceSwitcher({ onSwitch }: { onSwitch?: () => void }) {
   const { workspace, name, select } = useWorkspaceSelection();
+  const { beforeNavigate } = useReaderNavigation();
   const router = useRouter();
   const pathname = usePathname();
   const Icon = workspace === 'WORK' ? BriefcaseBusiness : UserRound;
@@ -34,7 +36,8 @@ export function WorkspaceSwitcher({ onSwitch }: { onSwitch?: () => void }) {
           <DropdownMenu.Label>Switch workspace</DropdownMenu.Label>
           <DropdownMenu.RadioGroup
             value={workspace}
-            onValueChange={(value) => {
+            onValueChange={async (value) => {
+              if (!(await beforeNavigate())) return;
               if (value !== workspace) {
                 const url = new URL(window.location.href);
                 url.searchParams.delete('email');

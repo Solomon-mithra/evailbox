@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { runInNewContext } from 'node:vm';
 import { fetchMessageContent } from '../src/lib/providers/content';
 import { messageDocument, messageHeaders } from '../src/lib/email-document';
 
@@ -83,7 +84,10 @@ describe('isolated email document', () => {
   it('carries its resource and referrer policy when rendered from the memory cache', () => {
     const document = messageDocument({ format: 'html', content: '<p>Message</p>' }, true);
     expect(document).toContain('http-equiv="Content-Security-Policy"');
-    expect(document).toContain('script-src &#39;none&#39;');
+    const nonce = document.match(/<script nonce="([\w+/=-]+)">/)?.[1];
+    expect(nonce).toBeTruthy();
+    expect(document).toContain(`script-src &#39;nonce-${nonce}&#39;`);
+    expect(document).not.toContain('script-src &#39;unsafe-inline&#39;');
     expect(document).toContain('img-src data: https:');
     expect(document).toContain('name="referrer" content="no-referrer"');
     expect(document.indexOf('http-equiv="Content-Security-Policy"')).toBeLessThan(
@@ -118,12 +122,108 @@ describe('isolated email document', () => {
     expect(document).toContain('color:#123456');
     expect(document).toContain('target="_blank"');
     expect(document).not.toMatch(
-      /<script|<form|<input|<iframe|onclick|javascript:|background-image|position:fixed|https:\/\/tracker/,
+      /alert\(1\)|<form|<input|<iframe|onclick|javascript:|background-image|position:fixed|https:\/\/tracker/,
     );
     expect(document).toContain('Magazine cover');
     expect(messageHeaders(false)['Content-Security-Policy']).toContain('img-src data:');
     expect(messageHeaders(false)['Content-Security-Policy']).toContain("script-src 'none'");
     expect(messageHeaders(false)['Cache-Control']).toContain('no-store');
+  });
+
+  it('authorizes only its own sizing script with a fresh nonce for each document', () => {
+    const malicious = {
+      format: 'html' as const,
+      content: `<script nonce="sender-nonce">parent.postMessage({type:'evailbox:email-height',height:1},'*')</script>
+        <svg onload="steal()"><script>steal()</script></svg>
+        <img src="https://example.com/image" onerror="steal()">
+        <meta http-equiv="Content-Security-Policy" content="script-src * 'unsafe-inline'">
+        <p nonce="sender-nonce" onclick="steal()">Safe content</p>`,
+    };
+    const document = messageDocument(malicious, true);
+    const nextDocument = messageDocument(malicious, true);
+    expect(document.match(/<script\b/g)).toHaveLength(1);
+    expect(document.match(/http-equiv="Content-Security-Policy"/g)).toHaveLength(1);
+    expect(document).toContain('Safe content');
+    expect(document).toContain('ResizeObserver');
+    expect(document).not.toMatch(/sender-nonce|steal\(\)|onload=|onerror=|onclick=|<svg/);
+    expect(document.match(/<script nonce="([^"]+)"/)?.[1]).not.toBe(
+      nextDocument.match(/<script nonce="([^"]+)"/)?.[1],
+    );
+  });
+
+  it('preserves quoted conversation text and nested replies', () => {
+    const document = messageDocument({
+      format: 'html',
+      content:
+        '<p>Latest reply</p><blockquote><p>Earlier reply</p><blockquote>Original message</blockquote></blockquote>',
+    });
+    expect(document).toContain(
+      '<p>Latest reply</p><blockquote><p>Earlier reply</p><blockquote>Original message</blockquote></blockquote>',
+    );
+  });
+
+  it('reports natural body height and updates it when images load or the frame is resized', () => {
+    const document = messageDocument({ format: 'text', content: 'A short email' });
+    const script = document.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/)?.[1];
+    expect(script).toBeTruthy();
+    let naturalHeight = 96;
+    let reportResize: () => void = () => {};
+    const frameCallbacks: Array<() => void> = [];
+    const windowEvents = new Map<string, (event?: unknown) => void>();
+    const documentEvents = new Map<string, () => void>();
+    const postMessage = vi.fn();
+    const parent = { postMessage };
+    runInNewContext(script!, {
+      parent,
+      document: {
+        body: { getBoundingClientRect: () => ({ height: naturalHeight }) },
+        querySelector: () => ({ scrollHeight: 48, clientHeight: 48 }),
+        documentElement: { scrollHeight: 900 },
+        addEventListener: (name: string, handler: () => void) => documentEvents.set(name, handler),
+      },
+      window: {
+        addEventListener: (name: string, handler: (event?: unknown) => void) =>
+          windowEvents.set(name, handler),
+      },
+      ResizeObserver: class {
+        constructor(callback: () => void) {
+          reportResize = callback;
+        }
+        observe() {}
+      },
+      requestAnimationFrame: (callback: () => void) => frameCallbacks.push(callback),
+    });
+    const flushFrame = () => frameCallbacks.splice(0).forEach((callback) => callback());
+    flushFrame();
+    expect(postMessage).toHaveBeenLastCalledWith(
+      { type: 'evailbox:email-height', height: 96 },
+      '*',
+    );
+
+    naturalHeight = 620;
+    documentEvents.get('load')?.();
+    flushFrame();
+    expect(postMessage).toHaveBeenLastCalledWith(
+      { type: 'evailbox:email-height', height: 620 },
+      '*',
+    );
+
+    naturalHeight = 380;
+    windowEvents.get('resize')?.();
+    reportResize();
+    flushFrame();
+    expect(postMessage).toHaveBeenLastCalledWith(
+      { type: 'evailbox:email-height', height: 380 },
+      '*',
+    );
+
+    postMessage.mockClear();
+    windowEvents.get('message')?.({
+      source: parent,
+      data: { type: 'evailbox:measure-email' },
+    });
+    flushFrame();
+    expect(postMessage).toHaveBeenCalledWith({ type: 'evailbox:email-height', height: 380 }, '*');
   });
 
   it('allows external images only after opt-in and never permits relative app URLs', () => {

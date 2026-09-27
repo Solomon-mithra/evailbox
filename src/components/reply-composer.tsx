@@ -28,10 +28,12 @@ export interface ReplyComposerHandle {
 export function ReplyComposer({
   email,
   initialMode = 'reply',
+  onSent,
   ref,
 }: {
   email: Pick<Email, 'id' | 'accountId' | 'subject' | 'sender'>;
   initialMode?: ReplyMode;
+  onSent?: () => void;
   ref?: Ref<ReplyComposerHandle>;
 }) {
   const demo = useDemo(),
@@ -249,10 +251,12 @@ export function ReplyComposer({
             revision: saved.revision,
           });
       updateDraft(sent);
-      if (sent.status === 'accepted')
+      if (sent.status === 'accepted') {
         toast.success(
           demo ? 'Demo complete — no email sent.' : 'Your provider accepted the reply.',
         );
+        onSent?.();
+      }
       await client.invalidateQueries({ queryKey: ['private', user?.id, workspace] });
     } catch (e) {
       setError((e as Error).message);
@@ -262,6 +266,7 @@ export function ReplyComposer({
           const value = await read();
           setResult(value);
           updateDraft(value.draft);
+          if (value.draft?.status === 'accepted') onSent?.();
         } catch {
           if (draftRef.current) updateDraft({ ...draftRef.current, status: 'unknown' });
         }
@@ -275,11 +280,11 @@ export function ReplyComposer({
     setBusy(true);
     setError('');
     try {
-      updateDraft(
-        await api.post<ReplyDraftDTO>(workspacePath(`${base}/reply`, workspace), {
-          intent: 'reconcile',
-        }),
-      );
+      const reconciled = await api.post<ReplyDraftDTO>(workspacePath(`${base}/reply`, workspace), {
+        intent: 'reconcile',
+      });
+      updateDraft(reconciled);
+      if (reconciled.status === 'accepted') onSent?.();
     } catch (e) {
       setError((e as Error).message);
     } finally {
