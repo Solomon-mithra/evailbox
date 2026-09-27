@@ -1,5 +1,29 @@
 # evailbox X website-card generation prompts
 
+## Variant 02 revision: larger question, no left brand lockup
+
+Input: `evailbox-x-card-02-too-much-to-ask-800x418.png`.
+
+Output: `evailbox-x-card-02-too-much-to-ask-v2-800x418.png`.
+
+Edited with built-in OpenAI image generation, then exported at exactly 800 × 418 using Sharp with `fit: 'contain'`. The left logo and wordmark are removed, the question is enlarged, and the right-side sticker, tagline, and three icons remain.
+
+```text
+Use case: precise-object-edit / ads-marketing.
+Edit this supplied evailbox X website-card image. Preserve the wide landscape 800:418 aspect ratio.
+Make ONLY these changes on the LEFT half:
+1. Completely remove the bottom-left brand lockup, both the small green envelope icon AND the "evailbox" wordmark. Restore the same warm ivory background in that area.
+2. Enlarge and reflow the question to use the left column's full height, including the space freed by removing the lockup. Use the same bold dark forest-green sans-serif typography, with the exact text "Is that too much to ask?" arranged into three balanced lines:
+"Is that"
+"too much"
+"to ask?"
+Make the letters substantially larger than in the reference, visually filling the left half from near the top to near the bottom. Keep sensible even line spacing and roughly 6% outer padding. Keep all words fully visible, no crop or overlap. The question should feel bold, generous and dominant.
+PRESERVE the entire RIGHT half as closely as possible: the pale-lime tilted "Nope." sticker, peeled corner and shadow, the supporting line "Your inbox. Your rules.", and all THREE icons in the row underneath (Gmail, the central green evailbox envelope, Outlook). In particular, keep the central evailbox icon in the right-hand row; only the left brand lockup is being removed.
+Keep the same background, colors, light, typography style, landscape composition, and right-side object positions. Do not add any new text, symbols, logos or UI. Return the finished ad image, not a screenshot or mockup. Target canvas is 1600 x 836 pixels or exactly the same 800:418 proportion.
+```
+
+## Original landscape generation
+
 The user-provided X preview displayed a landscape website card and cropped the square source artwork. These are the prompts used with the built-in OpenAI image generation tool to recompose the three concepts for that placement.
 
 Target upload: 800 × 418 PNG, approximately 1.91:1, under 5 MB. Source: [X Image Ads with Website Card specifications](https://business.x.com/en/help/campaign-setup/creative-ad-specifications), checked 2026-09-26.
