@@ -24,6 +24,8 @@ vi.mock('@/lib/providers/content', () => ({ fetchMessageText: mocks.fetchText })
 vi.mock('@/lib/providers/credentials', () => ({ withAccountCredentials: mocks.credentials }));
 import { classifyEmails, classificationConcurrency } from '@/lib/classification';
 import { currentModelVersion, emailContentHash } from '@/lib/classification-version';
+import { capturePendingTagHistory } from '@/lib/tag-scope';
+import { getInboxCounts } from '@/lib/inbox';
 const database = new PGlite();
 const user = '11111111-1111-4111-8111-111111111111',
   other = '22222222-2222-4222-8222-222222222222';
@@ -44,6 +46,8 @@ beforeAll(async () => {
     '20260925030000_classification_freshness',
     '20260925040000_plan_preview',
     '20260926000000_drop_email_body',
+    '20260927000000_stripe_billing',
+    '20260928000000_tag_history_limit',
   ])
     await database.exec(await readFile(`prisma/migrations/${path}/migration.sql`, 'utf8'));
   for (const uid of [user, other]) {
@@ -58,7 +62,7 @@ beforeAll(async () => {
 afterAll(() => database.close());
 beforeEach(async () => {
   await database.exec(
-    'TRUNCATE emails CASCADE; TRUNCATE tags CASCADE; TRUNCATE monthly_usage; TRUNCATE processing_state;',
+    'TRUNCATE emails CASCADE; TRUNCATE tags CASCADE; TRUNCATE monthly_usage; TRUNCATE processing_state; TRUNCATE billing_accounts; TRUNCATE billing_usage;',
   );
   await database.query(
     "INSERT INTO tags(id,\"userId\",name,\"nameKey\",prompt,\"updatedAt\") VALUES('t1',$1,'A','a','Rule',now()),('t2',$1,'B','b','Rule',now())",
@@ -120,6 +124,180 @@ async function usage() {
     await database.query<{ n: number }>('SELECT coalesce(sum(emails),0)::int n FROM monthly_usage')
   ).rows[0].n;
 }
+it('limits a new tag to 100 existing emails even when all historical mail is unprocessed', async () => {
+  await seed(250);
+  await database.exec('DELETE FROM tags');
+  await database.query(
+    `INSERT INTO tags(id,"userId",name,"nameKey",prompt,"updatedAt") VALUES('new',$1,'New','new','Rule',now())`,
+    [user],
+  );
+  expect(await classifyEmails(user, { workspace: 'PERSONAL' })).toMatchObject({
+    classified: 100,
+    errors: 0,
+    remaining: 0,
+  });
+  expect(await classifyEmails(user, { workspace: 'PERSONAL' })).toMatchObject({
+    classified: 0,
+    remaining: 0,
+  });
+  expect(mocks.evaluate).toHaveBeenCalledTimes(100);
+  expect(mocks.evaluate.mock.calls.at(-1)![0].id).toBe(user + '-0151');
+  expect(await usage()).toBe(100);
+});
+async function requestMatches(tagId?: string) {
+  await capturePendingTagHistory({ $executeRaw: mocks.execute }, user, 'PERSONAL', tagId);
+}
+it('checks only 100 pending emails per explicit request across tags and stops between requests', async () => {
+  await seed(250);
+  await requestMatches();
+  for (let i = 0; i < 4; i++) {
+    expect(await classifyEmails(user, { workspace: 'PERSONAL', limit: 25 })).toMatchObject({
+      classified: 50,
+      remaining: 75 - i * 25,
+    });
+  }
+  expect(await classifyEmails(user, { workspace: 'PERSONAL' })).toMatchObject({
+    classified: 0,
+    remaining: 0,
+  });
+  expect(mocks.evaluate).toHaveBeenCalledTimes(100);
+  await requestMatches();
+  expect(await classifyEmails(user, { workspace: 'PERSONAL' })).toMatchObject({
+    classified: 200,
+    remaining: 0,
+  });
+  expect(mocks.evaluate).toHaveBeenCalledTimes(200);
+  expect(mocks.evaluate.mock.calls[100][0].id).toBe(user + '-0150');
+  expect(await classifyEmails(user, { workspace: 'PERSONAL' })).toMatchObject({
+    classified: 0,
+    remaining: 0,
+  });
+});
+it('does not report excluded historical mail as either pending or checked', async () => {
+  await seed(250);
+  await requestMatches();
+  expect((await getInboxCounts({ id: user }, new URLSearchParams())).processing).toMatchObject({
+    imported: 250,
+    tagged: 0,
+    remaining: 100,
+  });
+  await classifyEmails(user, { workspace: 'PERSONAL' });
+  expect((await getInboxCounts({ id: user }, new URLSearchParams())).processing).toMatchObject({
+    imported: 250,
+    tagged: 100,
+    remaining: 0,
+  });
+});
+it('keeps new arrivals eligible after a bounded history check', async () => {
+  await seed(250);
+  await requestMatches();
+  await classifyEmails(user, { workspace: 'PERSONAL' });
+  await database.query(
+    `INSERT INTO emails(id,"userId","accountId","providerMessageId",subject,sender,"senderName",snippet,"contentHash","receivedAt","webUrl")
+    VALUES('incoming',$1::uuid,$1::text,'incoming','Email','a@example.com','A','PRIVATE SNIPPET',$2,now(),'https://mail.google.com')`,
+    [user, emailContentHash(input)],
+  );
+  expect(await classifyEmails(user, { workspace: 'PERSONAL' })).toMatchObject({
+    classified: 2,
+    remaining: 0,
+  });
+  expect(mocks.evaluate.mock.calls.at(-1)![0].id).toBe('incoming');
+});
+it('stamps newly inserted mail after the scope even if its transaction supplied an older arrival time', async () => {
+  await seed(150);
+  await requestMatches();
+  await classifyEmails(user, { workspace: 'PERSONAL' });
+  await database.query(
+    `INSERT INTO emails(id,"userId","accountId","providerMessageId",subject,sender,"senderName",snippet,"contentHash","receivedAt","webUrl","createdAt")
+    VALUES('concurrent-arrival',$1::uuid,$1::text,'concurrent-arrival','Email','a@example.com','A','PRIVATE SNIPPET',$2,now(),'https://mail.google.com','2020-01-01')`,
+    [user, emailContentHash(input)],
+  );
+  expect(await classifyEmails(user, { workspace: 'PERSONAL' })).toMatchObject({
+    classified: 2,
+    remaining: 0,
+  });
+  expect(mocks.evaluate.mock.calls.at(-1)![0].id).toBe('concurrent-arrival');
+});
+it('filters each email tag list by scope even when another tag can check older mail', async () => {
+  await seed(150);
+  await requestMatches('t1');
+  expect(await classifyEmails(user, { workspace: 'PERSONAL' })).toMatchObject({
+    classified: 200,
+    remaining: 50,
+  });
+  expect(await classifyEmails(user, { workspace: 'PERSONAL' })).toMatchObject({
+    classified: 50,
+    remaining: 0,
+  });
+  expect(mocks.evaluate.mock.calls.at(-1)![1].map((tag: { id: string }) => tag.id)).toEqual(['t2']);
+});
+it('does not bypass the history cap for forced or explicit-email classification', async () => {
+  await seed(150);
+  await requestMatches();
+  expect(
+    await classifyEmails(user, { workspace: 'PERSONAL', force: true, emailIds: [user + '-0001'] }),
+  ).toMatchObject({ classified: 0, remaining: 0 });
+  expect(mocks.evaluate).not.toHaveBeenCalled();
+});
+it('does not replace archived history with older mail during a retry', async () => {
+  await seed(150);
+  await requestMatches();
+  await database.query('UPDATE emails SET "inInbox"=false WHERE id=$1', [user + '-0150']);
+  expect(await classifyEmails(user, { workspace: 'PERSONAL' })).toMatchObject({
+    classified: 198,
+    remaining: 0,
+  });
+  expect(mocks.evaluate).toHaveBeenCalledTimes(99);
+  expect(mocks.evaluate.mock.calls.at(-1)![0].id).toBe(user + '-0051');
+});
+it('bounds preexisting tags during migration without erasing saved decisions', async () => {
+  await seed(250);
+  await classifyEmails(user, { workspace: 'PERSONAL', limit: 3 });
+  await database.exec('BEGIN');
+  try {
+    await database.exec(`DROP TRIGGER tags_capture_history ON tags;
+      DROP FUNCTION capture_tag_history();
+      DROP TRIGGER emails_stamp_arrival ON emails;
+      DROP FUNCTION stamp_email_arrival();
+      ALTER TABLE tags DROP COLUMN "matchFrom", DROP COLUMN "historyEmailIds";`);
+    await database.exec(
+      await readFile('prisma/migrations/20260928000000_tag_history_limit/migration.sql', 'utf8'),
+    );
+    expect(await count('email_classifications')).toBe(6);
+    expect((await getInboxCounts({ id: user }, new URLSearchParams())).processing).toMatchObject({
+      imported: 250,
+      tagged: 3,
+      remaining: 97,
+    });
+  } finally {
+    await database.exec('ROLLBACK');
+  }
+});
+it('scopes manual snapshots to their tenant and workspace', async () => {
+  await seed(150);
+  await seed(150, other);
+  await database.query(
+    `INSERT INTO tags(id,"userId",name,"nameKey",prompt,"updatedAt")
+    VALUES('other',$1,'Other','other','Rule',now())`,
+    [other],
+  );
+  const before = await database.query(
+    'SELECT "matchFrom","historyEmailIds" FROM tags WHERE id=\'other\'',
+  );
+  await capturePendingTagHistory({ $executeRaw: mocks.execute }, user, 'WORK');
+  const personal = await database.query<{ ids: string[] }>(
+    'SELECT "historyEmailIds" AS ids FROM tags WHERE id=\'t1\'',
+  );
+  expect(personal.rows[0].ids).toEqual([]);
+  await requestMatches();
+  const after = await database.query(
+    'SELECT "matchFrom","historyEmailIds" FROM tags WHERE id=\'other\'',
+  );
+  expect(after.rows).toEqual(before.rows);
+  expect((await getInboxCounts({ id: user }, new URLSearchParams())).processing?.remaining).toBe(
+    100,
+  );
+});
 it('drains 1000 emails in recent-first waves and counts each email once, including negative decisions', async () => {
   await seed(1000);
   for (let i = 0; i < 10; i++)
@@ -546,11 +724,139 @@ it('shares the turn budget across personal and work inboxes', async () => {
     [user],
   );
   await database.query(
-    `UPDATE emails SET workspace='WORK',"accountId"='work-account' WHERE "userId"=$1 AND "providerMessageId"::int<=10`,
+    `UPDATE emails SET workspace='WORK',"accountId"='work-account',"createdAt"=CURRENT_TIMESTAMP WHERE "userId"=$1 AND "providerMessageId"::int<=10`,
     [user],
   );
   const result = await classifyEmails(user, { limit: 20 });
   expect(mocks.evaluate).toHaveBeenCalledTimes(20);
   expect(result.remaining).toBe(5);
   expect(mocks.evaluate.mock.calls.filter(([, tags]) => tags[0].id === 'work-tag')).toHaveLength(5);
+});
+
+async function billingTrial(used = 0, expired = false) {
+  vi.stubEnv('APP_MODE', 'live');
+  vi.stubEnv('BILLING_ENABLED', 'true');
+  const start = new Date(Date.now() - (expired ? 4 : 1) * 86400000).toISOString();
+  const end = new Date(Date.now() + (expired ? -1 : 2) * 86400000).toISOString();
+  await database.query(
+    'INSERT INTO billing_accounts("userId","trialStartedAt","trialEndsAt") VALUES($1,$2::timestamp,$3::timestamp)',
+    [user, start, end],
+  );
+  await database.query(
+    'INSERT INTO billing_usage("userId","periodStart",emails) VALUES($1,$2::timestamp,$3)',
+    [user, start, used],
+  );
+}
+it('stops exactly at the trial email cap and settles blocked work without calling inference again', async () => {
+  await seed(8);
+  await billingTrial(9998);
+  expect(await classifyEmails(user)).toMatchObject({
+    classified: 4,
+    remaining: 0,
+    billingBlocked: true,
+  });
+  expect(mocks.evaluate).toHaveBeenCalledTimes(2);
+  expect(
+    (await database.query<{ emails: number }>('SELECT emails FROM billing_usage')).rows[0].emails,
+  ).toBe(10000);
+  mocks.evaluate.mockClear();
+  expect(await classifyEmails(user)).toMatchObject({
+    classified: 0,
+    remaining: 0,
+    billingBlocked: true,
+  });
+  expect(mocks.evaluate).not.toHaveBeenCalled();
+});
+it('expired trials and users who have not started one never invoke paid classification', async () => {
+  await seed(2);
+  await billingTrial(0, true);
+  expect(await classifyEmails(user)).toMatchObject({ classified: 0, billingBlocked: true });
+  await database.exec('TRUNCATE billing_accounts;');
+  expect(await classifyEmails(user)).toMatchObject({ classified: 0, billingBlocked: true });
+  expect(mocks.evaluate).not.toHaveBeenCalled();
+});
+it('enforces a cancellation that happens while inference is in flight before saving results', async () => {
+  await seed(2);
+  await billingTrial();
+  mocks.evaluate.mockImplementation(async (_email, tags) => {
+    await database.query(
+      'UPDATE billing_accounts SET "subscriptionStatus"=\'canceled\' WHERE "userId"=$1',
+      [user],
+    );
+    return Object.fromEntries(tags.map((tag: { id: string }) => [tag.id, decision]));
+  });
+  expect(await classifyEmails(user)).toMatchObject({
+    classified: 0,
+    remaining: 0,
+    billingBlocked: true,
+  });
+  expect(await count('email_classifications')).toBe(0);
+  expect(
+    (await database.query<{ emails: number }>('SELECT emails FROM billing_usage')).rows[0].emails,
+  ).toBe(0);
+});
+it('does not count reclassification a second time during a trial', async () => {
+  await seed(1);
+  await billingTrial();
+  await classifyEmails(user);
+  await database.query('UPDATE tags SET version=version+1 WHERE "userId"=$1', [user]);
+  await classifyEmails(user);
+  expect(
+    (await database.query<{ emails: number }>('SELECT emails FROM billing_usage')).rows[0].emails,
+  ).toBe(1);
+  expect(mocks.evaluate).toHaveBeenCalledTimes(2);
+});
+it('shares one trial allowance across Personal and Work rather than granting each a separate cap', async () => {
+  await seed(4);
+  await billingTrial(9997);
+  await database.query(
+    `INSERT INTO email_accounts(id,"userId",workspace,provider,email,"accessToken","expiresAt") VALUES('billing-work-account',$1,'WORK','GMAIL','billing-work@example.com','fixture',now())`,
+    [user],
+  );
+  await database.query(
+    `INSERT INTO tags(id,"userId",workspace,name,"nameKey",prompt,"updatedAt") VALUES('billing-work-tag',$1,'WORK','Work','work','Rule',now())`,
+    [user],
+  );
+  await database.query(
+    `UPDATE emails SET workspace='WORK',"accountId"='billing-work-account',"createdAt"=CURRENT_TIMESTAMP WHERE "userId"=$1 AND "providerMessageId"::int<=2`,
+    [user],
+  );
+  expect(await classifyEmails(user)).toMatchObject({ remaining: 0, billingBlocked: true });
+  expect(mocks.evaluate).toHaveBeenCalledTimes(3);
+  expect(
+    (await database.query<{ emails: number }>('SELECT emails FROM billing_usage')).rows[0].emails,
+  ).toBe(10000);
+  expect(
+    (
+      await database.query(
+        'SELECT workspace,count(DISTINCT "emailId")::int AS emails FROM email_classifications GROUP BY workspace ORDER BY workspace',
+      )
+    ).rows,
+  ).toEqual([
+    { workspace: 'PERSONAL', emails: 2 },
+    { workspace: 'WORK', emails: 1 },
+  ]);
+});
+it('atomically consumes the last slot when independent workers evaluate different emails concurrently', async () => {
+  await seed(2);
+  await billingTrial(9999);
+  let calls = 0;
+  let release!: () => void;
+  const both = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  mocks.evaluate.mockImplementation(async (_email, tags) => {
+    if (++calls === 2) release();
+    await both;
+    return Object.fromEntries(tags.map((tag: { id: string }) => [tag.id, decision]));
+  });
+  await Promise.all([
+    classifyEmails(user, { emailIds: [user + '-0001'], workspace: 'PERSONAL' }),
+    classifyEmails(user, { emailIds: [user + '-0002'], workspace: 'PERSONAL' }),
+  ]);
+  expect(await count('email_classifications')).toBe(2);
+  expect(
+    (await database.query<{ emails: number }>('SELECT emails FROM billing_usage')).rows[0].emails,
+  ).toBe(10000);
+  expect(await usage()).toBe(1);
 });

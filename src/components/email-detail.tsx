@@ -1,66 +1,62 @@
 'use client';
 import { useRef, useState } from 'react';
-import {
-  ExternalLink,
-  Check,
-  Undo2,
-  Sparkles,
-  ChevronDown,
-  Reply,
-  ReplyAll,
-  Mail,
-  Archive,
-} from 'lucide-react';
+import { ExternalLink, Check, Undo2, Sparkles, Reply, ReplyAll, Mail, Archive } from 'lucide-react';
 import { Dialog } from './ui/dialog';
 import { Button } from './ui/button';
-import { TagBadge } from './ui/badge';
 import type { Email } from '@/types';
 import { useAction } from '@/hooks/useFetch';
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
-import { useDemo, useTrustedUser } from './providers';
-import { api } from '@/lib/api';
+import { useDemo, usePrivateCache } from './providers';
+import { emailContentQuery, emailDetailQuery } from '@/lib/email-preload';
 import { ReplyComposer, type ReplyComposerHandle } from './reply-composer';
 import type { ReplyMode } from '@/lib/providers/actions';
 import { useWorkspaceSelection } from './workspace-selection';
-import { workspacePath, type WorkspaceId } from '@/lib/workspace-selection';
+import type { WorkspaceId } from '@/lib/workspace-selection';
 
 function MessageBody({ email, workspace }: { email: Email; workspace: WorkspaceId }) {
-  const [images, setImages] = useState(false);
-  const [loaded, setLoaded] = useState(false);
+  const { user, ready } = usePrivateCache();
+  const [images, setImages] = useState(true);
+  const content = useQuery({
+    ...emailContentQuery({ userId: user?.id ?? '', workspace }, email.id, images),
+    enabled: !!user && ready,
+  });
   return (
     <section className="email-message" aria-label="Message content">
       <div className="email-reader-toolbar">
         <span>
-          {!loaded
-            ? 'Loading message…'
-            : images
-              ? 'External images are visible.'
-              : 'External images are hidden for privacy.'}
+          {content.isError && !content.data
+            ? 'Message unavailable.'
+            : !content.data
+              ? 'Loading message…'
+              : images
+                ? 'Images enabled'
+                : 'Images hidden'}
         </span>
-        <button
-          type="button"
-          className="email-image-toggle"
-          onClick={() => {
-            setLoaded(false);
-            setImages(!images);
-          }}
-        >
+        <button type="button" className="email-image-toggle" onClick={() => setImages(!images)}>
           {images ? 'Hide images' : 'Load images'}
         </button>
       </div>
-      <iframe
-        key={String(images)}
-        className="email-message-frame"
-        title="Email message"
-        src={workspacePath(
-          `/api/emails/${encodeURIComponent(email.id)}/content?images=${images ? '1' : '0'}`,
-          workspace,
-        )}
-        sandbox="allow-popups allow-popups-to-escape-sandbox"
-        referrerPolicy="no-referrer"
-        onLoad={() => setLoaded(true)}
-      />
+      {content.data ? (
+        <iframe
+          key={String(images)}
+          className="email-message-frame"
+          title="Email message"
+          srcDoc={content.data.html}
+          sandbox="allow-popups allow-popups-to-escape-sandbox"
+          referrerPolicy="no-referrer"
+        />
+      ) : (
+        <div className="email-message-placeholder" role="status">
+          {content.isError ? (
+            <Button variant="outline" onClick={() => void content.refetch()}>
+              Try again
+            </Button>
+          ) : (
+            'Loading message…'
+          )}
+        </div>
+      )}
     </section>
   );
 }
@@ -74,11 +70,10 @@ export function EmailDetail({
   const { workspace } = useWorkspaceSelection();
   const mutation = useAction(),
     demo = useDemo();
-  const user = useTrustedUser();
+  const { user, ready } = usePrivateCache();
   const detail = useQuery({
-    queryKey: ['private', user?.id, workspace, 'detail', selected?.id],
-    queryFn: () => api.get<Email>(workspacePath(`/api/emails/${selected!.id}`, workspace)),
-    enabled: !!user && !!selected && !demo,
+    ...emailDetailQuery({ userId: user?.id ?? '', workspace }, selected?.id ?? ''),
+    enabled: !!user && ready && !!selected && !demo,
   });
   const source = detail.data ?? selected;
   const [readState, setReadState] = useState<{ id: string; isRead: boolean } | null>(null);
@@ -178,30 +173,6 @@ export function EmailDetail({
               initialMode={reply.mode}
             />
           )}
-          <details className="decision-trace" key={email.id}>
-            <summary>
-              <Sparkles size={16} />
-              Why this was sorted here
-              <ChevronDown size={16} className="expand-icon" />
-            </summary>
-            {email.classifications.length ? (
-              email.classifications.map((c) => (
-                <div className="trace-item" key={c.id}>
-                  <div>
-                    <TagBadge tag={c.tag} />
-                    <span>
-                      {Math.round(c.confidence)}% match probability · {c.decision.replace('_', ' ')}
-                    </span>
-                  </div>
-                  <p>{c.reasoning}</p>
-                </div>
-              ))
-            ) : (
-              <p>
-                No classifications yet. Run the classifier to evaluate this email against your tags.
-              </p>
-            )}
-          </details>
           <div className="dialog-actions wrap">
             <Button
               variant="ghost"

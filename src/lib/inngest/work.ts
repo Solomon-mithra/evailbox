@@ -48,7 +48,14 @@ export async function processInboxBatch(userId: string) {
         !['WORK_COOLDOWN', 'WORK_IN_PROGRESS'].includes(error.code)
       )
         throw error;
-      classification = { classified: 0, errors: 0, remaining: 1, retryAfterSeconds: 60 };
+      classification = {
+        classified: 0,
+        errors: 0,
+        remaining: 1,
+        // A stored cooldown already has an absolute retry time. Adding another
+        // minute here lets early/duplicate events postpone inference indefinitely.
+        ...(error.code === 'WORK_IN_PROGRESS' ? { retryAfterSeconds: 60 } : {}),
+      };
     }
     return { sync, classification };
   } catch {

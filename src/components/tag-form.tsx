@@ -9,6 +9,7 @@ import { Button } from './ui/button';
 import { Input, Textarea } from './ui/input';
 import { Loader } from './ui/loader';
 import { toast } from 'sonner';
+import { TAG_SCOPE_NOTICE, TAG_EDIT_NOTICE } from '@/lib/tag-policy';
 type Fields = Omit<TagInput, 'keywords' | 'senders'> & { keywords: string; senders: string };
 export function TagForm({
   tag,
@@ -135,6 +136,7 @@ function Form({ tag, close }: { tag?: Tag; close: () => void }) {
           {error}
         </p>
       )}
+      <p className="field-hint">{tag ? TAG_EDIT_NOTICE : TAG_SCOPE_NOTICE}</p>
       <div className="dialog-actions">
         <Button type="button" variant="outline" onClick={close}>
           Cancel

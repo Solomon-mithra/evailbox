@@ -13,7 +13,7 @@ An individual connects Gmail or Outlook, chooses Personal or Work, defines up to
 | Explore       | Public homepage and pricing; clearly labeled fictional demo. Missing credentials never silently activate demo mode.                                                  |
 | Sign in       | Server-verified Supabase session; authenticated private routes/APIs; origin-checked mutations.                                                                       |
 | Connect mail  | Independent provider OAuth with PKCE/state and verified mailbox identity; encrypted tokens; correct workspace binding.                                               |
-| Import        | Gmail's initial 30-day Inbox window; Outlook Inbox traversal; durable pagination, deduplication, incremental changes and rescan recovery. No fixed 100-email cutoff. |
+| Import        | Latest 100 existing Inbox emails per newly connected Gmail/Outlook account; durable pagination, new arrivals, retained-message updates and rescan recovery. |
 | Handle bursts | Small per-user turns and configurable bounded concurrency; continuations preserve progress and best-effort fairness across users. No unmeasured latency promise.     |
 | Open inbox    | Render saved summaries before classification; show current tagged/imported counts, a growing denominator during import and saved progress during cooldowns.          |
 | Define rules  | Workspace-unique names, validated prompts/priority/hints; edits invalidate stale decisions.                                                                          |
@@ -21,7 +21,7 @@ An individual connects Gmail or Outlook, chooses Personal or Work, defines up to
 | Browse        | Stable cursor pagination, combined filters, priority views, independent content loading and safe cached summaries.                                                   |
 | Act           | Explicit reply/reply-all, persisted drafts, read/archive/trash as granted by provider scopes; reconcile ambiguous sends instead of blindly retrying.                 |
 | Manage        | Disconnect only the intended mailbox/workspace; clear private caches; verified user deletion cascades application data and deletes the Supabase identity.            |
-| Plans         | Display Starter/Heavy preview and actual usage; billing/allowance blocking remain off.                                                                               |
+| Plans         | Starter $4.99/10,000 emails and Heavy $7.99/20,000 monthly; three-day no-card trial; Stripe checkout/portal and server-enforced allowances when enabled.             |
 
 ## Privacy and reliability
 

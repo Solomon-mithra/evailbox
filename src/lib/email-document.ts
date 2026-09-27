@@ -17,6 +17,8 @@ const escape = (value: string) =>
 const length = /^(?:0|\d+(?:\.\d+)?(?:px|pt|em|rem|%))$/i;
 const color = /^(?:#[\da-f]{3,8}|[a-z]+|rgba?\([\d\s.,%]+\))$/i;
 const absoluteLink = (value: string) => /^(?:https?:\/\/|mailto:|tel:)/i.test(value);
+const resourcePolicy = (images: boolean) =>
+  `default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:${images ? ' https:' : ''}; base-uri 'none'; form-action 'none'`;
 
 export function messageHeaders(images: boolean): Record<string, string> {
   return {
@@ -25,7 +27,7 @@ export function messageHeaders(images: boolean): Record<string, string> {
     'Referrer-Policy': 'no-referrer',
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'SAMEORIGIN',
-    'Content-Security-Policy': `default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:${images ? ' https:' : ''}; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; sandbox allow-popups allow-popups-to-escape-sandbox`,
+    'Content-Security-Policy': `${resourcePolicy(images)}; frame-ancestors 'self'; sandbox allow-popups allow-popups-to-escape-sandbox`,
   };
 }
 
@@ -94,7 +96,9 @@ export function messageDocument(message: MessageContent, images = false, fallbac
             },
           },
         });
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Email message</title><style>
+  // Cached srcDoc documents cannot use HTTP headers. Carry the resource policy with
+  // the sanitized HTML; the reader's iframe still enforces its opaque-origin sandbox.
+  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${escape(resourcePolicy(images))}"><meta name="referrer" content="no-referrer"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Email message</title><style>
     :root{color-scheme:light}*{box-sizing:border-box}body{margin:0;padding:24px;color:#1f2937;background:white;font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;overflow-wrap:anywhere}
     .message{max-width:800px;margin:auto}img{max-width:100%!important;height:auto!important}table{max-width:100%!important}a{color:#086b57}pre{white-space:pre-wrap}blockquote{margin-left:12px;padding-left:16px;border-left:2px solid #d9e3df}.plain-text{white-space:pre-wrap}.notice{padding:12px 16px;background:#f6f7f5;border:1px solid #d9e3df;border-radius:8px;margin-bottom:20px;font:14px/1.5 sans-serif}
     @media(max-width:600px){body{padding:16px}}

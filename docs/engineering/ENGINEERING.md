@@ -10,6 +10,8 @@ Inbox summaries, metadata, counts, settings and full message content have separa
 
 TanStack Query/IndexedDB persist bounded summary queries only, partitioned by verified user and workspace. Bodies, tokens and auth sessions are excluded. Logout, disconnect and deletion clear the relevant private cache. Supabase private broadcasts contain invalidation metadata, not message data. Focus refresh and polling recover missed signals; active work polls every two seconds.
 
+A one-second row hover or keyboard focus preloads message detail and sanitized HTML. Clicks reuse pending/completed requests. Browser memory holds at most three speculative bodies plus an open reader, evicting inactive bodies after two minutes; the summary persister excludes these queries. Up to 32 unique HTTPS images per message warm without referrers, and the reader opens with images enabled. Background tag/usage invalidations do not reload an open body. Failed requests and provider-preview fallbacks retry on open. The sandboxed iframe and document CSP remain in force; hover never marks mail read or uses AI quota.
+
 ## Background path
 
 1. OAuth completion, sync/tag changes or authenticated mailbox notifications persist requested-work flags and increment revisions.
@@ -21,7 +23,7 @@ TanStack Query/IndexedDB persist bounded summary queries only, partitioned by ve
 
 Per-user concurrency is 1. `INBOX_WORK_CONCURRENCY` defaults to 5 and is bounded to 100; available plan capacity still applies. Each user's `JEV_CONCURRENCY` defaults to 4 (maximum 8). Inngest fairness across keys is best-effort, not a guaranteed strict round-robin sequence. Least-recently-synced accounts are imported first within a user.
 
-Initial provider pages request 20 messages. Gmail history pages count history records, which may reference more than 20 changed messages. Gmail initially scans the last 30 days of Inbox mail and catches up from a captured history ID. Outlook traverses Inbox delta pages without an initial date cutoff. [Provider contracts](PROVIDERS.md) describe cursor recovery.
+Initial provider pages request 20 messages. Gmail history pages count history records, which may reference more than 20 changed messages. New connections import at most 100 existing Inbox messages. Gmail then catches up from its captured history ID. Outlook downloads only lightweight delta references for the older tail to obtain a valid checkpoint; only the first 100 existing messages are hydrated and saved. New arrivals continue after that, while updates to older unknown messages cannot create local rows. [Provider contracts](PROVIDERS.md) describe cursor recovery.
 
 Inngest schedules recovery every minute, missed-mailbox sync every 15 minutes, and subscription renewal hourly. Vercel cron configs are empty. Legacy synchronous helper functions are not the active hosted scheduling path.
 
@@ -44,6 +46,6 @@ A shared `processing_state` Jev cooldown stops further dispatch after rate limit
 
 ## Product boundaries
 
-Manual replies, read/archive/trash actions require explicit user actions and granted provider scopes. Ambiguous sends are reconciled rather than automatically retried. Personal/Work rules never mix. Notifications/digests are retired; legacy database delivery tables are inert. Plan billing and usage enforcement remain off.
+Manual replies, read/archive/trash actions require explicit user actions and granted provider scopes. Ambiguous sends are reconciled rather than automatically retried. Personal/Work rules never mix. Notifications/digests are retired; legacy database delivery tables are inert. Stripe billing and usage enforcement activate only with `BILLING_ENABLED=true`. Trials and paid periods gate AI processing; reading and replies remain available. Billing writes and classification saves lock the owning user so first-classification allowances are consumed atomically. Webhooks fetch current Stripe state under that lock and require an active subscription with a paid latest invoice. See [billing](BILLING.md).
 
 Use [status](../STATUS.md) for evidence, [environment](ENVIRONMENT.md) for variable names, [service setup](SERVICE_SETUP.md) for activation and [runbook](RUNBOOK.md) for operations. Tests and local key configuration do not establish production readiness.

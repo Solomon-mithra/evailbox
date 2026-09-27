@@ -1,6 +1,7 @@
 import { withAccountLock } from '@/lib/providers/credentials';
 import { NextResponse, after } from 'next/server';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import { requireUser, supabaseServer, adminAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { route, ok, ApiError, jsonBody } from '@/lib/errors';
@@ -14,7 +15,7 @@ import {
 } from '@/lib/workspace';
 import { getInbox, getInboxCounts } from '@/lib/inbox';
 import { beginConnection, finishConnection } from '@/lib/oauth';
-import { requestWork, requestDailySync } from '@/lib/work-queue';
+import { requestDailySync } from '@/lib/work-queue';
 import { publishUserWork, recoverPendingWork } from '@/lib/inngest/dispatch';
 import { backgroundConfigured } from '@/lib/inngest/client';
 import { POST as queueSync } from '@/app/api/sync/route';
@@ -26,8 +27,13 @@ import {
   requestMailboxSubscriptionRenewal,
 } from '@/lib/mailbox-subscriptions';
 import { emailContentResponse } from '@/lib/email-content';
+import { lockBillingUser } from '@/lib/billing/state';
+import { cancelBillingForDeletion, clearBillingDeletion } from '@/lib/billing/service';
+import { capturePendingTagHistory, tagMatchScope } from '@/lib/tag-scope';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+// Scope snapshots may wait for an import page's transaction (up to 20 seconds).
+const tagTransactionOptions = { maxWait: 5000, timeout: 30000 };
 async function dispatch(request: Request) {
   const url = new URL(request.url),
     path = url.pathname.replace(/^\/api\//, ''),
@@ -114,7 +120,7 @@ async function dispatch(request: Request) {
     });
     return ok(
       await db.$transaction(async (tx) => {
-        await tx.$queryRaw`SELECT id FROM users WHERE id=${user.id}::uuid FOR UPDATE`;
+        await lockBillingUser(user.id, tx);
         if ((await tx.tag.count({ where: { userId: user.id, workspace } })) >= 30)
           throw new ApiError(409, 'TAG_LIMIT', 'You can create up to 30 tags.');
         const created = await tx.tag.create({
@@ -128,7 +134,7 @@ async function dispatch(request: Request) {
           },
         });
         return created;
-      }),
+      }, tagTransactionOptions),
       201,
     );
   }
@@ -144,26 +150,34 @@ async function dispatch(request: Request) {
       });
       return ok(
         await db.$transaction(async (tx) => {
+          await lockBillingUser(user.id, tx);
+          const current = await tx.tag.findUniqueOrThrow({
+            where: { id, userId: user.id, workspace },
+          });
+          const matchingChanged = (['name', 'prompt', 'keywords', 'senders'] as const).some(
+            (key) =>
+              patch[key] !== undefined &&
+              JSON.stringify(patch[key]) !== JSON.stringify(current[key]),
+          );
           const updated = await tx.tag.update({
             where: { id, userId: user.id, workspace },
             data: {
               ...patch,
               ...(patch.name ? { nameKey: patch.name.toLowerCase() } : {}),
-              version: { increment: 1 },
+              ...(matchingChanged ? { version: { increment: 1 } } : {}),
             },
           });
-          await tx.emailClassification.deleteMany({
-            where: { tagId: id, userId: user.id, workspace },
-          });
-          await tx.user.update({
-            where: { id: user.id },
-            data: {
-              workRequested: true,
-              workRevision: { increment: 1 },
-            },
-          });
+          if (matchingChanged) {
+            await tx.emailClassification.deleteMany({
+              where: { tagId: id, userId: user.id, workspace },
+            });
+            await tx.user.update({
+              where: { id: user.id },
+              data: { workRequested: true, workRevision: { increment: 1 } },
+            });
+          }
           return updated;
-        }),
+        }, tagTransactionOptions),
       );
     }
     if (method === 'DELETE') {
@@ -230,17 +244,24 @@ async function dispatch(request: Request) {
       !(await db.tag.findFirst({ where: { id: data.tagId, userId: user.id, workspace } }))
     )
       throw new ApiError(404, 'NOT_FOUND', 'Tag not found.');
-    // Persist a rerun request by removing selected cached decisions before waking the worker.
-    if (ids?.length)
-      await db.emailClassification.deleteMany({
-        where: {
-          userId: user.id,
-          workspace,
-          emailId: { in: ids },
-          ...(data.tagId ? { tagId: data.tagId } : {}),
-        },
+    await db.$transaction(async (tx) => {
+      await lockBillingUser(user.id, tx);
+      if (!ids) {
+        await capturePendingTagHistory(tx, user.id, workspace, data.tagId);
+      } else if (ids.length) {
+        // Explicit reruns must not erase old matches that the worker is no longer allowed to check.
+        await tx.$executeRaw(Prisma.sql`DELETE FROM email_classifications c USING emails e,tags t
+          WHERE c."emailId"=e.id AND c."tagId"=t.id AND c."userId"=e."userId"
+            AND c.workspace=e.workspace AND t."userId"=e."userId" AND t.workspace=e.workspace
+            AND e."userId"=${user.id}::uuid AND e.workspace=${workspace}::"WorkspaceKind"
+            AND e.id IN (${Prisma.join(ids)}) AND ${tagMatchScope()}
+            ${data.tagId ? Prisma.sql`AND t.id=${data.tagId}` : Prisma.empty}`);
+      }
+      await tx.user.update({
+        where: { id: user.id },
+        data: { workRequested: true, workRevision: { increment: 1 } },
       });
-    await requestWork(user.id);
+    }, tagTransactionOptions);
     after(async () => {
       await publishUserWork(user.id);
     });
@@ -289,10 +310,15 @@ async function dispatch(request: Request) {
   if (path === 'user' && method === 'DELETE') {
     const { confirm } = z.object({ confirm: z.literal('DELETE') }).parse(await jsonBody(request));
     void confirm;
-    await db.user.deleteMany({ where: { id: user.id } });
-    const { error } = await adminAuth().deleteUser(user.id);
-    if (error)
+    await cancelBillingForDeletion(user.id);
+    try {
+      const { error } = await adminAuth().deleteUser(user.id);
+      if (error) throw error;
+    } catch {
+      await clearBillingDeletion(user.id);
       throw new ApiError(502, 'DELETE_FAILED', 'Account deletion could not finish. Try again.');
+    }
+    await db.user.deleteMany({ where: { id: user.id } });
     await (await supabaseServer()).auth.signOut();
     return ok({ deleted: true });
   }

@@ -80,6 +80,16 @@ describe('full message content', () => {
 });
 
 describe('isolated email document', () => {
+  it('carries its resource and referrer policy when rendered from the memory cache', () => {
+    const document = messageDocument({ format: 'html', content: '<p>Message</p>' }, true);
+    expect(document).toContain('http-equiv="Content-Security-Policy"');
+    expect(document).toContain('script-src &#39;none&#39;');
+    expect(document).toContain('img-src data: https:');
+    expect(document).toContain('name="referrer" content="no-referrer"');
+    expect(document.indexOf('http-equiv="Content-Security-Policy"')).toBeLessThan(
+      document.indexOf('<style>'),
+    );
+  });
   it('fits oversized newsletter tables and removes hidden document metadata', () => {
     const document = messageDocument({
       format: 'html',

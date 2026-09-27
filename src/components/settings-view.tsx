@@ -35,7 +35,7 @@ export function SettingsView({ suggestedPlan }: { suggestedPlan?: PlanId }) {
       <div className="page-heading">
         <div>
           <h1>Settings</h1>
-          <p>Manage your profile, connections, and inbox preferences.</p>
+          <p>Manage your subscription, profile, and connected accounts.</p>
         </div>
       </div>
       <AccountProfile suggestedPlan={suggestedPlan} />

@@ -273,3 +273,60 @@ it('yields after one page and carries bodies only in caller-owned memory', async
   expect(JSON.stringify(result)).not.toContain('TRANSIENT SECRET');
   expect(JSON.stringify(fixture.upsert.mock.calls)).not.toContain('TRANSIENT SECRET');
 });
+
+it('does not import an older unknown message encountered in incremental updates', async () => {
+  const message = {
+    providerMessageId: 'old-unknown',
+    subject: '',
+    sender: '',
+    senderName: '',
+    snippet: '',
+    body: 'not imported',
+    receivedAt: new Date(),
+    isRead: true,
+    webUrl: '',
+  };
+  fixture.fetch.mockResolvedValueOnce({
+    messages: [message],
+    createIds: [],
+    cursor: 'next',
+    hasMore: false,
+  });
+  fixture.retainDraft.mockResolvedValueOnce({ count: 0 });
+  const bodies = new Map();
+  expect(await syncMailboxes('u', undefined, Date.now() + 45000, { bodies })).toMatchObject({
+    synced: 0,
+    errors: 0,
+  });
+  expect(fixture.upsert).not.toHaveBeenCalled();
+  expect(bodies.size).toBe(0);
+});
+
+it('still updates retained older messages without inserting them again', async () => {
+  const message = {
+    providerMessageId: 'retained',
+    subject: '',
+    sender: '',
+    senderName: '',
+    snippet: '',
+    body: null,
+    receivedAt: new Date(),
+    isRead: true,
+    webUrl: '',
+  };
+  fixture.fetch.mockResolvedValueOnce({
+    messages: [message],
+    createIds: [],
+    cursor: 'next',
+    hasMore: false,
+  });
+  fixture.retainDraft.mockResolvedValueOnce({ count: 1 });
+  expect(await syncMailboxes('u')).toMatchObject({ synced: 1, errors: 0 });
+  expect(fixture.retainDraft).toHaveBeenCalledWith(
+    expect.objectContaining({
+      where: { userId: 'u', accountId: 'a', providerMessageId: 'retained' },
+      data: expect.objectContaining({ isRead: true }),
+    }),
+  );
+  expect(fixture.upsert).not.toHaveBeenCalled();
+});

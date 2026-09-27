@@ -15,6 +15,7 @@ import { EmailRow } from './inbox';
 import { EmptyState, ErrorState } from './states';
 import type { Tag, Email } from '@/types';
 import { toast } from 'sonner';
+import { TAG_HISTORY_LIMIT, TAG_CHECK_NOTICE } from '@/lib/tag-policy';
 export function TagsView({ tagId }: { tagId?: string }) {
   return <TagsViewContent key={tagId ?? 'all'} tagId={tagId} />;
 }
@@ -35,13 +36,16 @@ function TagsViewContent({ tagId }: { tagId?: string }) {
         path: '/api/classify/batch',
         body: tagId ? { tagId } : {},
       });
-      toast[r.errors ? 'warning' : 'success'](
-        r.demo
-          ? 'Demo emails checked against your tags.'
-          : r.rateLimited
-            ? `Completed ${r.classified} tag checks. AI rate limit reached; progress saved. Try again in ${r.retryAfterSeconds ?? 60} seconds.`
-            : `Completed ${r.classified} tag checks${r.remaining ? ' · run again to continue' : ''}${r.errors ? ' · some checks failed; try again' : ''}`,
-      );
+      if (r.demo) toast.success('Demo emails checked against your tags.');
+      else if (r.queued && r.workerAvailable === false)
+        toast.warning(
+          'Your check is saved and will start when background processing is available.',
+        );
+      else if (r.queued)
+        toast.info(
+          `Checking up to ${TAG_HISTORY_LIMIT} unprocessed emails for matches. Results will appear automatically.`,
+        );
+      else toast.error('We couldn’t start this check. Please try again.');
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -111,6 +115,7 @@ function TagsViewContent({ tagId }: { tagId?: string }) {
                   <span key={k}>{k}</span>
                 ))}
               </div>
+              <p className="field-hint">{TAG_CHECK_NOTICE}</p>
               <div className="rule-footer">
                 <span>{query.data?.total ?? 0} matching emails</span>
                 <Button variant="outline" size="sm" onClick={run} disabled={mutation.isPending}>
@@ -125,7 +130,7 @@ function TagsViewContent({ tagId }: { tagId?: string }) {
               ) : (
                 <EmptyState
                   title="No matches yet"
-                  message="Check for matches to find existing emails that fit this rule."
+                  message={`Check up to ${TAG_HISTORY_LIMIT} of the most recent emails still needing a check for this tag.`}
                 />
               )}
             </div>
@@ -163,7 +168,7 @@ function TagsViewContent({ tagId }: { tagId?: string }) {
               <h2>
                 Your tags <span className="count">{query.data?.tags.length ?? 0}</span>
               </h2>
-              <p>Open a tag to see its emails, or edit what it looks for.</p>
+              <p>{TAG_CHECK_NOTICE}</p>
             </div>
             <Button
               variant="outline"

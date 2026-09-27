@@ -53,8 +53,8 @@ async function main() {
       plan: saved.plan,
       source: saved.planSource,
       verified: true,
-      billingEnabled: false,
-      limitsEnforced: false,
+      billingEnabled: process.env.BILLING_ENABLED === 'true',
+      limitsEnforced: process.env.BILLING_ENABLED === 'true',
     }),
   );
 }

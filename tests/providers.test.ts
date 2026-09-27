@@ -122,7 +122,7 @@ describe('Gmail sync', () => {
       isRead: false,
     });
     expect(first.hasMore).toBe(true);
-    expect(String(mockFetch.mock.calls[1][0])).toContain('after%3A');
+    expect(new URL(mockFetch.mock.calls[1][0]).searchParams.has('q')).toBe(false);
     mockFetch.mockResolvedValueOnce(response({ messages: [] }));
     const last = await fetchEmailPage('GMAIL', 'token', first.cursor);
     expect(last.hasMore).toBe(true);
@@ -179,7 +179,7 @@ describe('Outlook sync security', () => {
     ).rejects.toThrow();
     expect(mockFetch).not.toHaveBeenCalled();
   });
-  it('preserves next/delta links, tombstones and plain bodies', async () => {
+  it('preserves legacy next/delta links, tombstones and plain bodies', async () => {
     const next =
       'https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$skiptoken=abc';
     const delta =
@@ -201,7 +201,15 @@ describe('Outlook sync security', () => {
         '@odata.nextLink': next,
       }),
     );
-    const first = await fetchEmailPage('OUTLOOK', 'token', null);
+    const first = await fetchEmailPage(
+      'OUTLOOK',
+      'token',
+      JSON.stringify({
+        v: 1,
+        provider: 'OUTLOOK',
+        url: 'https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta',
+      }),
+    );
     expect(first.deletedIds).toEqual(['old']);
     expect(first.messages[0].body).toBe(null);
     expect(first.hasMore).toBe(true);

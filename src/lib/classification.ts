@@ -7,15 +7,19 @@ import { currentModelVersion, type ClassificationInput } from './classification-
 import type { Classification } from './jev';
 import { classifyEmailAgainstTags } from './jev';
 import { ApiError } from './errors';
+import { billingEnabled } from './billing/config';
+import { lockBillingUser, processingAccess } from './billing/state';
 import { fetchMessageText } from './providers/content';
 import { withAccountCredentials } from './providers/credentials';
 import { withProviderDeadline } from './providers/http';
 import type { Provider } from './providers/types';
 import { workspaceIds, type WorkspaceId } from './workspace-selection';
+import { tagMatchScope } from './tag-scope';
 type BatchResult = {
   classified: number;
   errors: number;
   remaining: number;
+  billingBlocked?: true;
   rateLimited?: true;
   retryAfterSeconds?: number;
 };
@@ -79,6 +83,7 @@ type EmailSnapshot = Omit<ClassificationInput, 'body'> & {
   contentHash: string;
   firstClassifiedAt: Date | null;
   inInbox: boolean;
+  eligibleTagIds: string[];
   classifications: {
     tagId: string;
     tagVersion: number;
@@ -98,14 +103,20 @@ function backlogWhere(
   tagIds: string[],
   modelVersion: string,
   emailIds?: string[],
+  force = false,
 ) {
   // Unhashed rows wait for sync; a blank hash can never be recorded as current.
   return Prisma.sql`e."userId"=${userId}::uuid AND e.workspace=${workspace}::"WorkspaceKind" AND e."inInbox"=true AND e."contentHash"<>''
     ${emailIds ? Prisma.sql`AND e.id IN (${Prisma.join(emailIds.length ? emailIds : [''])})` : Prisma.empty}
     AND EXISTS (SELECT 1 FROM tags t WHERE t."userId"=e."userId" AND t.workspace=e.workspace AND t.id IN (${Prisma.join(tagIds)})
-      AND NOT EXISTS (SELECT 1 FROM email_classifications c WHERE c."emailId"=e.id AND c."tagId"=t.id
+      AND ${tagMatchScope()}
+      ${
+        force
+          ? Prisma.empty
+          : Prisma.sql`AND NOT EXISTS (SELECT 1 FROM email_classifications c WHERE c."emailId"=e.id AND c."tagId"=t.id
         AND c."userId"=e."userId" AND c.workspace=e.workspace AND c."tagVersion"=t.version
-        AND e."contentHash"<>'' AND c."contentHash"=e."contentHash" AND c."modelVersion"=${modelVersion}))`;
+        AND e."contentHash"<>'' AND c."contentHash"=e."contentHash" AND c."modelVersion"=${modelVersion})`
+      })`;
 }
 async function readCooldown() {
   const rows = await db.$queryRaw<{ notBefore: Date }[]>(
@@ -149,15 +160,29 @@ async function saveWave(
   const budget = deadline - Date.now() - 500;
   return db.$transaction(
     async (tx) => {
+      // Serialize allowance consumption with concurrent saves and subscription changes.
+      let billing;
+      if (billingEnabled()) {
+        await lockBillingUser(userId, tx);
+        billing = await processingAccess(userId, tx);
+        if (!billing.allowed) return none;
+      }
+      let slots = billing?.remaining ?? Infinity;
       // Stable lock order avoids two workers acquiring the same rows in opposite order.
       const ids = [...new Set(evaluated.flatMap((item) => item.tags.map((tag) => tag.id)))].sort();
       const tags = await tx.$queryRaw<{ id: string; version: number }[]>(
         Prisma.sql`SELECT id,version FROM tags WHERE "userId"=${userId}::uuid AND workspace=${workspace}::"WorkspaceKind" AND id IN (${Prisma.join(ids)}) ORDER BY id FOR SHARE`,
       );
       const emails = await tx.$queryRaw<
-        Pick<EmailSnapshot, 'id' | 'contentHash' | 'firstClassifiedAt' | 'inInbox'>[]
+        Pick<
+          EmailSnapshot,
+          'id' | 'contentHash' | 'firstClassifiedAt' | 'inInbox' | 'eligibleTagIds'
+        >[]
       >(
-        Prisma.sql`SELECT id,"contentHash","firstClassifiedAt","inInbox" FROM emails WHERE "userId"=${userId}::uuid AND workspace=${workspace}::"WorkspaceKind" AND id IN (${Prisma.join(evaluated.map((item) => item.email.id).sort())}) ORDER BY id FOR UPDATE`,
+        Prisma.sql`SELECT e.id,e."contentHash",e."firstClassifiedAt",e."inInbox",
+          ARRAY(SELECT t.id FROM tags t WHERE t."userId"=e."userId" AND t.workspace=e.workspace
+            AND t.id IN (${Prisma.join(ids)}) AND ${tagMatchScope()}) AS "eligibleTagIds"
+          FROM emails e WHERE e."userId"=${userId}::uuid AND e.workspace=${workspace}::"WorkspaceKind" AND e.id IN (${Prisma.join(evaluated.map((item) => item.email.id).sort())}) ORDER BY e.id FOR UPDATE`,
       );
       if (currentModelVersion() !== modelVersion) return none;
       const rows: Prisma.Sql[] = [],
@@ -167,10 +192,14 @@ async function saveWave(
         const email = emails.find((row) => row.id === item.email.id);
         // Sync rewrites the hash when the message changes; reject results for older content.
         if (!email?.inInbox || email.contentHash !== item.hash) continue;
-        const valid = item.tags.filter((tag) =>
-          tags.some((current) => current.id === tag.id && current.version === tag.version),
+        const valid = item.tags.filter(
+          (tag) =>
+            email.eligibleTagIds.includes(tag.id) &&
+            tags.some((current) => current.id === tag.id && current.version === tag.version),
         );
         if (!valid.length) continue;
+        if (!email.firstClassifiedAt && slots <= 0) continue;
+        if (!email.firstClassifiedAt) slots--;
         accepted.push({ id: email.id, hash: item.hash });
         if (!email.firstClassifiedAt) firstClassifications++;
         for (const tag of valid) {
@@ -188,6 +217,9 @@ async function saveWave(
       if (firstClassifications)
         await tx.$executeRaw(Prisma.sql`INSERT INTO monthly_usage("userId",month,emails) VALUES(${userId}::uuid,date_trunc('month',CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date,${firstClassifications})
       ON CONFLICT("userId",month) DO UPDATE SET emails=monthly_usage.emails+EXCLUDED.emails`);
+      if (firstClassifications && billing && billing.access !== 'manual')
+        await tx.$executeRaw(Prisma.sql`INSERT INTO billing_usage("userId","periodStart",emails) VALUES(${userId}::uuid,${billing.start.toISOString()}::timestamp,${firstClassifications})
+          ON CONFLICT("userId","periodStart") DO UPDATE SET emails=billing_usage.emails+EXCLUDED.emails`);
       return { saved: rows.length, accepted: accepted.length };
     },
     { maxWait: 500, timeout: Math.min(10000, budget - 500) },
@@ -207,10 +239,18 @@ export async function classifyEmails(
   userId: string,
   options: ClassificationOptions = {},
 ): Promise<BatchResult> {
-  const limit = options.limit ?? 100;
+  let limit = options.limit ?? 100;
   if (!Number.isInteger(limit) || limit < 0 || limit > 100)
     throw new Error('Invalid classification batch limit');
-  return classifyBatch(userId, options, { remaining: limit });
+  if (billingEnabled()) {
+    const access = await processingAccess(userId);
+    if (!access.allowed) return { classified: 0, errors: 0, remaining: 0, billingBlocked: true };
+    limit = Math.min(limit, access.remaining);
+  }
+  const result = await classifyBatch(userId, options, { remaining: limit });
+  if (billingEnabled() && !(await processingAccess(userId)).allowed)
+    return { ...result, remaining: 0, billingBlocked: true };
+  return result;
 }
 async function classifyBatch(
   userId: string,
@@ -260,11 +300,20 @@ async function classifyBatch(
   let unsaved = 0;
   if (budget.remaining > 0 && !retryAfterSeconds && Date.now() + 3000 < deadline) {
     const selection = options.force
-      ? Prisma.sql`e."userId"=${userId}::uuid AND e.workspace=${workspace}::"WorkspaceKind" AND e."inInbox"=true AND e."contentHash"<>'' ${options.emailIds ? Prisma.sql`AND e.id IN (${Prisma.join(options.emailIds.length ? options.emailIds : [''])})` : Prisma.empty}`
+      ? backlogWhere(
+          userId,
+          workspace,
+          tags.map((tag) => tag.id),
+          modelVersion,
+          options.emailIds,
+          true,
+        )
       : where;
     const emails = await db.$queryRaw<
       EmailSnapshot[]
     >(Prisma.sql`SELECT e.id,e."accountId",e."providerMessageId",e.subject,e.sender,e.snippet,e."contentHash",e."firstClassifiedAt",e."inInbox",
+      ARRAY(SELECT t.id FROM tags t WHERE t."userId"=e."userId" AND t.workspace=e.workspace
+        AND t.id IN (${Prisma.join(tags.map((tag) => tag.id))}) AND ${tagMatchScope()}) AS "eligibleTagIds",
       COALESCE((SELECT jsonb_agg(jsonb_build_object('tagId',c."tagId",'tagVersion',c."tagVersion",'contentHash',c."contentHash",'modelVersion',c."modelVersion")) FROM email_classifications c WHERE c."emailId"=e.id AND c."userId"=e."userId" AND c.workspace=e.workspace),'[]'::jsonb) AS classifications
       FROM emails e WHERE ${selection} ORDER BY e."receivedAt" DESC,e.id DESC LIMIT ${budget.remaining}`);
     const pending = emails
@@ -273,14 +322,15 @@ async function classifyBatch(
         ...item,
         tags: tags.filter(
           (tag) =>
-            options.force ||
-            !item.email.classifications.some(
-              (c) =>
-                c.tagId === tag.id &&
-                c.tagVersion === tag.version &&
-                c.contentHash === item.hash &&
-                c.modelVersion === modelVersion,
-            ),
+            item.email.eligibleTagIds.includes(tag.id) &&
+            (options.force ||
+              !item.email.classifications.some(
+                (c) =>
+                  c.tagId === tag.id &&
+                  c.tagVersion === tag.version &&
+                  c.contentHash === item.hash &&
+                  c.modelVersion === modelVersion,
+              )),
         ),
       }))
       .filter((item) => item.tags.length);
@@ -305,6 +355,7 @@ async function classifyBatch(
       if (retryAfterSeconds || Date.now() + 3000 >= deadline) break;
       retryAfterSeconds = await readCooldown();
       if (retryAfterSeconds || Date.now() + 3000 >= deadline) break;
+      if (billingEnabled() && !(await processingAccess(userId)).allowed) break;
       const waveStart = Date.now();
       const wave = pending.slice(index, index + concurrency);
       const outcomes = await Promise.all(

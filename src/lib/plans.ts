@@ -5,20 +5,31 @@ export const plans = {
   STARTER: {
     id: 'STARTER',
     name: 'Starter',
-    price: 14,
-    monthlyEmails: 5000,
+    price: 4.99,
+    priceCents: 499,
+    monthlyEmails: 10000,
     description: 'For your everyday inbox.',
   },
   HEAVY: {
     id: 'HEAVY',
     name: 'Heavy',
-    price: 24,
-    monthlyEmails: 10000,
+    price: 7.99,
+    priceCents: 799,
+    monthlyEmails: 20000,
     description: 'For a busy inbox across work and life.',
   },
 } as const;
-// Preview access is an explicit product decision. No checkout or usage gate exists.
-export const planPreview = { billingEnabled: false, limitsEnforced: false } as const;
+export const TRIAL_DAYS = 3;
+export const TRIAL_EMAILS = 10000;
+export type BillingAccess =
+  | 'preview'
+  | 'manual'
+  | 'trial'
+  | 'active'
+  | 'trial_available'
+  | 'expired'
+  | 'payment_required'
+  | 'limit_reached';
 export function usagePeriod(now = new Date()) {
   return {
     start: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)),
@@ -44,6 +55,17 @@ export interface AccountOverview {
     requested: PlanId | null;
   };
   usage: { emails: number; periodStart: string; periodEnd: string };
-  billingEnabled: false;
-  limitsEnforced: false;
+  billingEnabled: boolean;
+  limitsEnforced: boolean;
+  billing: {
+    mode?: 'test' | 'live';
+    configured: boolean;
+    access: BillingAccess;
+    status: string | null;
+    trialEndsAt: string | null;
+    canStartTrial: boolean;
+    canManage: boolean;
+    cancelAtPeriodEnd: boolean;
+    processingAllowed: boolean;
+  };
 }

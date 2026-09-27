@@ -14,12 +14,14 @@ import {
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { useInboxWorkspace, useAction } from '@/hooks/useFetch';
+import { useEmailPreload } from '@/hooks/useEmailPreload';
 import { useDemo } from './providers';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { TagBadge } from './ui/badge';
 import { Skeleton } from './ui/loader';
 import { EmailDetail } from './email-detail';
+import { InboxProgress } from './inbox-progress';
 import { EmptyState, ErrorState } from './states';
 import { relativeTime } from '@/lib/utils';
 import { api } from '@/lib/api';
@@ -35,13 +37,24 @@ export function EmailRow({
   onOpen: (e: Email) => void;
   compact?: boolean;
 }) {
+  const preload = useEmailPreload(email.id);
   const tag = email.classifications
     .filter((c) => c.matched)
     .sort((a, b) => b.confidence - a.confidence)[0];
   return (
     <button
       className={`email-row ${email.handled ? 'email-handled' : ''} ${compact ? 'email-compact' : ''}`}
-      onClick={() => onOpen(email)}
+      onPointerEnter={(event) => {
+        if (event.pointerType !== 'touch') preload.start();
+      }}
+      onPointerLeave={preload.cancel}
+      onPointerCancel={preload.cancel}
+      onFocus={preload.start}
+      onBlur={preload.cancel}
+      onClick={() => {
+        preload.open();
+        onOpen(email);
+      }}
     >
       <span className="sender-avatar" aria-hidden="true">
         {(email.senderName || email.sender)
@@ -98,6 +111,8 @@ export function InboxView() {
     mutation = useAction(),
     demo = useDemo();
   const data = query.data;
+  const syncing =
+    mutation.isPending || data?.processing?.accounts?.some((account) => account.syncing);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const linked = params.get('workspace');
@@ -172,23 +187,13 @@ export function InboxView() {
         <Button
           variant="outline"
           onClick={sync}
-          disabled={mutation.isPending || (query.metadataReady && !data?.accounts.length)}
+          disabled={syncing || (query.metadataReady && !data?.accounts.length)}
         >
-          <RefreshCw size={16} className={mutation.isPending ? 'spin' : ''} />
-          {mutation.isPending ? 'Syncing…' : 'Sync now'}
+          <RefreshCw size={16} className={syncing ? 'spin' : ''} />
+          {syncing ? 'Syncing…' : 'Sync now'}
         </Button>
       </div>
-      {data?.processing && (data.processing.importing || data.processing.remaining > 0) && (
-        <p role="status" aria-live="polite" className="section-caption">
-          {data.processing.paused && data.processing.remaining > 0
-            ? `Tagging paused · ${data.processing.tagged}/${data.processing.imported} complete. Progress is saved; retrying automatically.`
-            : data.processing.remaining > 0
-              ? `Tagging ${data.processing.tagged}/${data.processing.imported}…`
-              : 'Importing mail…'}
-          {data.processing.importing &&
-            ` · ${data.processing.imported} imported so far. More mail is loading.`}
-        </p>
-      )}
+      <InboxProgress processing={data?.processing} />
       <div className="inbox-toolbar">
         <div
           className="view-tabs"
@@ -233,12 +238,10 @@ export function InboxView() {
           </button>
         </div>
         <div className="last-synced">
-          <RefreshCw size={12} className={data?.user.workRequested ? 'spin' : ''} />
-          {data?.user.workRequested
-            ? 'Processing saved backlog…'
-            : data?.accounts[0]?.lastSync
-              ? `Synced ${relativeTime(data.accounts[0].lastSync)} ago`
-              : 'Not synced yet'}
+          <RefreshCw size={12} />
+          {data?.accounts[0]?.lastSync
+            ? `Synced ${relativeTime(data.accounts[0].lastSync)} ago`
+            : 'Not synced yet'}
         </div>
       </div>
       <div className="filter-bar">

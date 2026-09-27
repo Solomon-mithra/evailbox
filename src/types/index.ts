@@ -81,11 +81,23 @@ export interface InboxPage {
   nextCursor: string | null;
 }
 export interface InboxProcessing {
+  accounts?: InboxAccountProgress[];
   imported: number;
   tagged: number;
   remaining: number;
   importing: boolean;
   paused: boolean;
+  billingBlocked?: boolean;
+}
+export interface InboxAccountProgress {
+  id: string;
+  email: string;
+  initialSync: boolean;
+  syncing: boolean;
+  imported: number;
+  tagged: number;
+  remaining: number;
+  importing: boolean;
 }
 export interface InboxCounts {
   processing?: InboxProcessing;

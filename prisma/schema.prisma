@@ -28,6 +28,8 @@ model User {
   requestedPlan String?
   planGrantedAt DateTime?
   monthlyUsage MonthlyUsage[]
+  billing BillingAccount?
+  billingUsage BillingUsage[]
   replyDrafts ReplyDraft[]
   lastBackgroundSyncAt DateTime?
   workRequested Boolean @default(false)
@@ -59,6 +61,8 @@ model Tag {
   keywords String[] @default([])
   senders String[] @default([])
   version Int @default(1)
+  matchFrom DateTime @default(now()) @db.Timestamp(6)
+  historyEmailIds String[] @default([])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   user User @relation(fields:[userId],references:[id],onDelete:Cascade)
@@ -114,7 +118,7 @@ model Email {
   isRead Boolean @default(false)
   handled Boolean @default(false)
   webUrl String
-  createdAt DateTime @default(now())
+  createdAt DateTime @default(now()) @db.Timestamp(6)
   user User @relation(fields:[userId],references:[id],onDelete:Cascade)
   account EmailAccount @relation(fields:[accountId,userId,workspace],references:[id,userId,workspace],onDelete:Cascade)
   classifications EmailClassification[]
@@ -227,6 +231,40 @@ model ProcessingState {
   id String @id
   notBefore DateTime @default(now())
   @@map("processing_state")
+}
+model BillingAccount {
+  userId String @id @db.Uuid
+  trialStartedAt DateTime?
+  trialEndsAt DateTime?
+  stripeCustomerId String? @unique
+  stripeSubscriptionId String? @unique
+  stripePriceId String?
+  subscriptionPlan String?
+  subscriptionStatus String?
+  invoicePaid Boolean @default(false)
+  periodStart DateTime?
+  periodEnd DateTime?
+  cancelAtPeriodEnd Boolean @default(false)
+  checkoutSessionId String?
+  checkoutPlan String?
+  checkoutGeneration Int @default(0)
+  deletingAt DateTime?
+  updatedAt DateTime @default(now()) @updatedAt
+  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+  @@map("billing_accounts")
+}
+model BillingUsage {
+  userId String @db.Uuid
+  periodStart DateTime
+  emails Int @default(0)
+  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+  @@id([userId,periodStart])
+  @@map("billing_usage")
+}
+model StripeWebhookReceipt {
+  id String @id
+  receivedAt DateTime @default(now())
+  @@map("stripe_webhook_receipts")
 }
 model ReplyDraft {
   id String @id @default(cuid())

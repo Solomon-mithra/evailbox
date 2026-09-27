@@ -1,6 +1,6 @@
 # Environment configuration
 
-Updated 2026-09-26. `.env.local` is the local variable-name reference; `.env.example` is the tracked reference in a clean checkout. All root `.env*` files share 33 names. Their values remain environment-specific.
+Updated 2026-09-26. `.env.local` is the local variable-name reference; `.env.example` is the tracked reference in a clean checkout. All root `.env*` files share 39 names. Their values remain environment-specific.
 
 Run `npm run env:check` to detect missing, extra or duplicate names. The check never compares or prints values. Existing values were preserved during alignment; only the retrieved Inngest keys and missing settings were added locally. Real `.env.local` and `.env.production` files are ignored by Git. Example files contain placeholders/defaults only.
 
@@ -17,6 +17,10 @@ Run `npm run env:check` to detect missing, extra or duplicate names. The check n
 | Gmail push       | `GMAIL_PUBSUB_TOPIC`, `GMAIL_PUBSUB_SUBSCRIPTION`, `GMAIL_PUBSUB_AUDIENCE`, `GMAIL_PUBSUB_SERVICE_ACCOUNT_EMAIL` | Optional authenticated Pub/Sub setup; configure together                                               |
 | Outlook push     | `OUTLOOK_WEBHOOK_URL`                                                                                            | Optional public HTTPS notification/lifecycle callback                                                  |
 | Retired delivery | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `RESEND_API_KEY`, `DIGEST_FROM`                        | Unused; retained only to preserve existing values/name parity. Not required and cannot enable delivery |
+
+## Stripe billing
+
+Add `BILLING_ENABLED=false` and blank server-only slots for `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_STARTER_PRICE_ID`, `STRIPE_HEAVY_PRICE_ID`, and `STRIPE_PORTAL_CONFIGURATION_ID`. Existing environment values are preserved. See [billing setup](BILLING.md) to provision the catalog, apply the migration, register webhooks, and enable billing after test-mode verification. No publishable key is required because Checkout and the customer portal are hosted by Stripe.
 
 ## Inngest
 

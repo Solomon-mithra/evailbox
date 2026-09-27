@@ -27,6 +27,9 @@ describe('email frame security headers', () => {
       });
       expect(response.headers.get('X-Frame-Options')).toBe('DENY');
       expect(response.headers.get('Content-Security-Policy')).toContain("frame-ancestors 'none'");
+      expect(response.headers.get('Content-Security-Policy')).toContain(
+        "img-src 'self' data: https:",
+      );
     },
   );
 });

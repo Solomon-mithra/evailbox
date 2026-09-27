@@ -1,4 +1,5 @@
 import 'server-only';
+import { tagMatchScope } from './tag-scope';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { db } from './db';
@@ -6,7 +7,15 @@ import { encrypt, decrypt } from './crypto';
 import { ApiError } from './errors';
 import { workspaceIds } from './workspace-selection';
 import { currentModelVersion } from './classification-version';
-import type { EmailSummary, InboxPage, InboxCounts } from '@/types';
+import { billingEnabled } from './billing/config';
+import { processingAccess } from './billing/state';
+import type {
+  EmailSummary,
+  InboxPage,
+  InboxCounts,
+  InboxProcessing,
+  InboxAccountProgress,
+} from '@/types';
 
 const filtersSchema = z.object({
   workspace: z.enum(workspaceIds).default('PERSONAL'),
@@ -126,6 +135,34 @@ export async function getInbox(user: { id: string }, params: URLSearchParams): P
   };
 }
 
+const initialSyncCursor = z.object({
+  v: z.number(),
+  provider: z.enum(['GMAIL', 'OUTLOOK']),
+  phase: z.literal('initial'),
+  rescan: z.boolean().optional(),
+  remaining: z.number().int().nonnegative().optional(),
+});
+function isInitialImport(cursor: string | null, hasSynced: boolean) {
+  if (!cursor) return !hasSynced;
+  try {
+    const state = initialSyncCursor.parse(JSON.parse(cursor));
+    if (state.rescan || state.remaining === 0) return false;
+    return state.provider === 'GMAIL'
+      ? state.v === 1
+      : state.v === 2 && state.remaining !== undefined;
+  } catch {
+    return false;
+  }
+}
+type InboxCountsRow = Omit<InboxCounts, 'processing'> & {
+  processing: Omit<InboxProcessing, 'accounts'> & {
+    accounts: (Omit<InboxAccountProgress, 'initialSync'> & {
+      cursor: string | null;
+      hasSynced: boolean;
+    })[];
+  };
+};
+
 export async function getInboxCounts(
   user: { id: string },
   params: URLSearchParams,
@@ -139,27 +176,54 @@ export async function getInboxCounts(
     range: 'all' as const,
     needs: '0' as const,
   };
-  const rows = await db.$queryRaw<InboxCounts[]>(Prisma.sql`
-    WITH progress AS (
-      SELECT count(*)::int AS imported,
-        count(*) FILTER (WHERE EXISTS (
+  const rows = await db.$queryRaw<InboxCountsRow[]>(Prisma.sql`
+    WITH email_progress AS (
+      SELECT e."accountId", EXISTS (
           SELECT 1 FROM tags t WHERE t."userId"=e."userId" AND t.workspace=e.workspace
+            AND ${tagMatchScope()}
             AND NOT EXISTS (
               SELECT 1 FROM email_classifications c WHERE c."emailId"=e.id
                 AND c."userId"=e."userId" AND c.workspace=e.workspace AND c."tagId"=t.id
                 AND c."tagVersion"=t.version AND e."contentHash"<>''
                 AND c."contentHash"=e."contentHash" AND c."modelVersion"=${currentModelVersion()}
             )
-        ))::int AS remaining
+        ) AS pending,
+        EXISTS (
+          SELECT 1 FROM email_classifications c JOIN tags t ON t.id=c."tagId"
+            AND t."userId"=c."userId" AND t.workspace=c.workspace
+          WHERE c."emailId"=e.id AND c."userId"=e."userId" AND c.workspace=e.workspace
+            AND c."tagVersion"=t.version AND e."contentHash"<>''
+            AND c."contentHash"=e."contentHash" AND c."modelVersion"=${currentModelVersion()}
+        ) AS checked
       FROM emails e WHERE ${where(user.id, base)}
+    ), account_progress AS (
+      SELECT "accountId", count(*)::int AS imported,
+        count(*) FILTER (WHERE pending)::int AS remaining,
+        count(*) FILTER (WHERE NOT pending AND checked)::int AS tagged
+      FROM email_progress GROUP BY "accountId"
+    ), progress AS (
+      SELECT COALESCE(sum(imported), 0)::int AS imported,
+        COALESCE(sum(tagged), 0)::int AS tagged,
+        COALESCE(sum(remaining), 0)::int AS remaining FROM account_progress
     )
     SELECT
       (SELECT jsonb_build_object(
-        'imported', p.imported, 'tagged', p.imported-p.remaining, 'remaining', p.remaining,
+        'imported', p.imported, 'tagged', p.tagged, 'remaining', p.remaining,
         'importing', EXISTS (SELECT 1 FROM email_accounts a WHERE a."userId"=${user.id}::uuid
           AND a.workspace=${input.workspace}::"WorkspaceKind" AND a."syncRequested"=true),
         'paused', EXISTS (SELECT 1 FROM users u WHERE u.id=${user.id}::uuid AND u."workNotBefore">CURRENT_TIMESTAMP)
-          OR EXISTS (SELECT 1 FROM processing_state WHERE id='jev' AND "notBefore">CURRENT_TIMESTAMP)
+          OR EXISTS (SELECT 1 FROM processing_state WHERE id='jev' AND "notBefore">CURRENT_TIMESTAMP),
+        'accounts', COALESCE((SELECT jsonb_agg(jsonb_build_object(
+          'id', a.id, 'email', a.email, 'imported', COALESCE(ap.imported, 0),
+          'tagged', COALESCE(ap.tagged, 0),
+          'remaining', COALESCE(ap.remaining, 0), 'importing', a."syncRequested",
+          'syncing', a."syncRequested" AND a."syncLeaseId" IS NOT NULL
+            AND COALESCE(a."syncLeaseUntil">CURRENT_TIMESTAMP, false),
+          'cursor', a.cursor, 'hasSynced', a."lastSync" IS NOT NULL
+        ) ORDER BY a."createdAt", a.id)
+          FROM email_accounts a LEFT JOIN account_progress ap ON ap."accountId"=a.id
+          WHERE a."userId"=${user.id}::uuid AND a.workspace=${input.workspace}::"WorkspaceKind"
+        ), '[]'::jsonb)
       ) FROM progress p) AS processing,
       (SELECT count(*)::int FROM emails e WHERE ${where(user.id, input)}) AS total,
       (SELECT count(*)::int FROM emails e WHERE ${where(user.id, base)} AND ${needsMatch()}) AS "needsTotal",
@@ -172,5 +236,22 @@ export async function getInboxCounts(
           AND c.matched = true AND c."tagVersion" = t.version GROUP BY c."tagId"
       ) counts), '{}'::jsonb) AS "tagCounts"
   `);
-  return rows[0];
+  const { accounts, ...processing } = rows[0].processing;
+  // Checkpoints stay server-side. Queue/AI backlog is not active mailbox sync.
+  const result: InboxCounts = {
+    ...rows[0],
+    processing: {
+      ...processing,
+      accounts: accounts.map(({ cursor, hasSynced, ...account }) => ({
+        ...account,
+        initialSync: account.importing && isInitialImport(cursor, hasSynced),
+      })),
+    },
+  };
+  if (billingEnabled() && result.processing) {
+    const access = await processingAccess(user.id);
+    result.processing.billingBlocked = !access.allowed;
+    result.processing.paused ||= !access.allowed;
+  }
+  return result;
 }

@@ -9,7 +9,7 @@ import styles from './pricing.module.css';
 export const metadata: Metadata = {
   title: 'Plans & pricing — evailbox',
   description:
-    'Starter at $14/month or Heavy at $24/month. Organize, read and reply across your inboxes. No payment required during preview.',
+    'Starter at $4.99 USD/month or Heavy at $7.99 USD/month. Try AI email organization free for 3 days. No credit card required.',
   alternates: { canonical: '/pricing' },
   robots: { index: isPublicIndexingEnabled(), follow: isPublicIndexingEnabled() },
 };
@@ -50,10 +50,10 @@ export default function PricingPage() {
           </p>
         </div>
         <div className={styles.preview} role="note">
-          <strong>You can try everything during preview.</strong>
+          <strong>Try AI organization free for 3 days. No credit card required.</strong>
           <span>
-            No payment required. Monthly allowances are not enforced yet. We’ll ask you to opt in
-            before billing begins.
+            Start your trial in Settings: 72 hours and 10,000 emails total across your accounts. One
+            trial per account. It ends automatically without a charge.
           </span>
         </div>
         <div className={styles.plans}>
@@ -70,14 +70,14 @@ export default function PricingPage() {
               <p>{plan.description}</p>
               <div className={styles.price}>
                 <strong>${plan.price}</strong>
-                <span>per person / month</span>
+                <span>USD per person / month</span>
               </div>
               <p className={styles.allowance}>
                 <strong>{plan.monthlyEmails.toLocaleString('en-US')} emails</strong> processed each
                 month across your accounts
               </p>
               <Link href={`/settings?plan=${plan.id}`} className={styles.cta}>
-                Explore {plan.name}
+                Choose {plan.name}
                 <ArrowRight size={17} />
               </Link>
               <ul>
@@ -98,14 +98,16 @@ export default function PricingPage() {
             <p>
               An email counts once when it is first classified, across Personal and Work. Opening it
               again or replying does not consume another email. An initial import may count as those
-              emails are first processed. Allowances are not enforced during preview.
+              emails are first processed. Paid allowances reset each monthly billing period.
             </p>
           </details>
           <details>
             <summary>Will I be charged now?</summary>
             <p>
-              No. There is no checkout or automatic charge during preview. Choosing a plan saves
-              your preference; we’ll ask you to opt in before any paid subscription begins.
+              Starting the free trial does not charge you or collect a card. Choosing a plan here
+              takes you to Settings. If you subscribe, your free trial ends and your selected plan
+              is charged immediately, then renews monthly until you cancel. Paid checkout does not
+              include an additional trial.
             </p>
           </details>
           <details>
@@ -118,9 +120,9 @@ export default function PricingPage() {
           <details>
             <summary>What happens if I go over the allowance?</summary>
             <p>
-              For now, nothing is blocked and there are no overage charges. Before paid plans
-              launch, we’ll clearly explain the options. Ordinary reading and replying will remain
-              available.
+              AI processing pauses when your trial ends or your email allowance is reached. Reading
+              and replying remain available. No overage charges. Subscribe after your trial, or wait
+              for your paid monthly allowance to reset.
             </p>
           </details>
         </section>

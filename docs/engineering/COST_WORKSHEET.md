@@ -8,7 +8,7 @@ Use the actual service dashboards and an explicitly scoped staging run to measur
 - Provider/Gateway usage, billed units, current route/model prices, failed calls and retries.
 - Inngest executions/steps, queue wait, concurrency, and the subscribed tier.
 - Database storage/pool pressure, runtime duration and hosting charges.
-- First-tag and full-completion latency separately, at the actual 30-day Gmail volume.
+- First-tag and full-completion latency separately, at the 100-email initial-import limit.
 
 `npm run test:burst` uses mocked inference/providers and cannot measure bills or hosted latency. `npm run load:burst -- staging-user-ids.json` reports observed hosted progress for provisioned test mailboxes; inspect the corresponding provider invoices/dashboard usage for cost.
 

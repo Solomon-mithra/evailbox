@@ -49,6 +49,6 @@ export async function emailContentResponse(
     fallback = true;
   }
   return new Response(messageDocument(message, images, fallback), {
-    headers: messageHeaders(images),
+    headers: { ...messageHeaders(images), 'X-Email-Content-Fallback': fallback ? '1' : '0' },
   });
 }

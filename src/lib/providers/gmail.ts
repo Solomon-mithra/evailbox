@@ -3,15 +3,23 @@ import { WORK_BATCH_SIZE } from '../inngest/config';
 import { z } from 'zod';
 import { authHeaders, ProviderHttpError, requestJson } from './http';
 import type { ProviderEmail, SyncPage } from './types';
+import { INITIAL_IMPORT_LIMIT } from './sync-policy';
 const base = 'https://gmail.googleapis.com/gmail/v1/users/me';
 const id = z.string().min(1).max(1024);
+const bounds = {
+  startedAt: z.iso.datetime().optional(),
+  oldestAt: z.iso.datetime().optional(),
+};
 const cursorSchema = z.discriminatedUnion('phase', [
   z.object({
     v: z.literal(1),
     provider: z.literal('GMAIL'),
     phase: z.literal('initial'),
     historyId: id,
-    after: z.number().int().nonnegative(),
+    after: z.number().int().nonnegative().optional(),
+    remaining: z.number().int().min(0).max(INITIAL_IMPORT_LIMIT).optional(),
+    rescan: z.boolean().optional(),
+    ...bounds,
     pageToken: z.string().optional(),
   }),
   z.object({
@@ -20,6 +28,7 @@ const cursorSchema = z.discriminatedUnion('phase', [
     phase: z.literal('history'),
     historyId: id,
     pageToken: z.string().optional(),
+    ...bounds,
   }),
 ]);
 type Cursor = z.infer<typeof cursorSchema>;
@@ -145,10 +154,12 @@ export async function fetchGmailPage(
   token: string,
   serialized: string | null,
   fullRescan = false,
+  recovery?: { startedAt?: string; oldestAt?: string },
 ): Promise<SyncPage> {
   let cursor: Cursor;
   if (serialized) cursor = cursorSchema.parse(JSON.parse(serialized));
   else {
+    const startedAt = new Date(Date.now()).toISOString();
     const profile = z
       .object({ historyId: id })
       .parse(await requestJson(`${base}/profile`, { headers: authHeaders(token) }));
@@ -157,30 +168,65 @@ export async function fetchGmailPage(
       provider: 'GMAIL',
       phase: 'initial',
       historyId: profile.historyId,
-      after: fullRescan ? 0 : Math.floor(Date.now() / 1000) - 30 * 86400,
+      ...(fullRescan
+        ? {
+            after: recovery?.oldestAt
+              ? Math.max(0, Math.floor(Date.parse(recovery.oldestAt) / 1000) - 1)
+              : 0,
+            rescan: true,
+            ...recovery,
+          }
+        : { remaining: INITIAL_IMPORT_LIMIT, startedAt }),
     };
   }
   if (cursor.phase === 'initial') {
+    const pageSize = Math.min(WORK_BATCH_SIZE, cursor.remaining ?? WORK_BATCH_SIZE);
     const url = new URL(`${base}/messages`);
     url.search = new URLSearchParams({
-      maxResults: String(WORK_BATCH_SIZE),
+      maxResults: String(pageSize),
       labelIds: 'INBOX',
-      q: `after:${cursor.after}`,
+      ...(cursor.after !== undefined ? { q: `after:${cursor.after}` } : {}),
       ...(cursor.pageToken ? { pageToken: cursor.pageToken } : {}),
     }).toString();
     const list = z
       .object({ messages: z.array(reference).default([]), nextPageToken: z.string().optional() })
       .parse(await requestJson(url, { headers: authHeaders(token) }));
     const deleted = new Set<string>();
-    const messages = await hydrate(
-      [...new Set(list.messages.map((message) => message.id))],
-      token,
-      deleted,
-    );
-    const next: Cursor = list.nextPageToken
-      ? { ...cursor, pageToken: list.nextPageToken }
-      : { v: 1, provider: 'GMAIL', phase: 'history', historyId: cursor.historyId };
-    return { messages, deletedIds: [...deleted], cursor: JSON.stringify(next), hasMore: true };
+    const ids = [...new Set(list.messages.map((message) => message.id))].slice(0, pageSize);
+    const messages = await hydrate(ids, token, deleted);
+    const remaining = cursor.remaining === undefined ? undefined : cursor.remaining - ids.length;
+    const oldestAt = cursor.startedAt
+      ? new Date(
+          Math.min(
+            Date.parse(cursor.oldestAt ?? cursor.startedAt),
+            ...messages.map((m) => m.receivedAt.getTime()),
+          ),
+        ).toISOString()
+      : undefined;
+    const next: Cursor =
+      list.nextPageToken && remaining !== 0
+        ? { ...cursor, remaining, oldestAt, pageToken: list.nextPageToken }
+        : {
+            v: 1,
+            provider: 'GMAIL',
+            phase: 'history',
+            historyId: cursor.historyId,
+            startedAt: cursor.startedAt,
+            oldestAt,
+          };
+    return {
+      messages,
+      deletedIds: [...deleted],
+      cursor: JSON.stringify(next),
+      hasMore: true,
+      ...(cursor.rescan && cursor.startedAt
+        ? {
+            createIds: messages
+              .filter((m) => m.receivedAt.getTime() >= Date.parse(cursor.startedAt!))
+              .map((m) => m.providerMessageId),
+          }
+        : {}),
+    };
   }
   const url = new URL(`${base}/history`);
   url.search = new URLSearchParams({
@@ -193,13 +239,21 @@ export async function fetchGmailPage(
     raw = await requestJson(url, { headers: authHeaders(token) });
   } catch (error) {
     if (error instanceof ProviderHttpError && error.status === 404)
-      return { ...(await fetchGmailPage(token, null, true)), reset: true };
+      return {
+        ...(await fetchGmailPage(token, null, true, {
+          startedAt: cursor.startedAt,
+          oldestAt: cursor.oldestAt,
+        })),
+        reset: true,
+      };
     throw error;
   }
   const history = historySchema.parse(raw);
   const changed = new Set<string>();
+  const added = new Set<string>();
   const deleted = new Set<string>();
   for (const item of history.history) {
+    for (const event of item.messagesAdded ?? []) added.add(event.message.id);
     for (const message of item.messages ?? []) changed.add(message.id);
     for (const events of [item.messagesAdded, item.labelsAdded, item.labelsRemoved])
       for (const event of events ?? []) changed.add(event.message.id);
@@ -215,6 +269,8 @@ export async function fetchGmailPage(
     provider: 'GMAIL',
     phase: 'history',
     historyId: history.nextPageToken ? cursor.historyId : history.historyId,
+    startedAt: cursor.startedAt,
+    oldestAt: cursor.oldestAt,
     ...(history.nextPageToken ? { pageToken: history.nextPageToken } : {}),
   };
   return {
@@ -222,5 +278,6 @@ export async function fetchGmailPage(
     deletedIds: [...deleted],
     cursor: JSON.stringify(next),
     hasMore: Boolean(history.nextPageToken),
+    ...(cursor.startedAt ? { createIds: [...added] } : {}),
   };
 }

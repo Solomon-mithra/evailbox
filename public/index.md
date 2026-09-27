@@ -25,7 +25,11 @@ evailbox stores email summaries (subject, sender, a short preview and dates) for
 
 ## Plans
 
-Starter is $14/month for 5,000 newly processed emails; Heavy is $24/month for 10,000. During the preview, billing is off and allowances are not enforced. See [pricing](/pricing).
+Starter is $4.99 USD/month for 10,000 newly processed emails; Heavy is $7.99 USD/month for 20,000 across all connected accounts. Each email counts once at its first AI classification, including an initial import. Reading, refreshing and replying do not count.
+
+Start a free 3-day trial in Settings with no credit card required: 72 hours and 10,000 emails total, once per account. The trial ends without a charge. A separate subscription ends your trial and charges the selected plan immediately, then renews monthly until canceled. There is no additional trial at checkout.
+
+AI processing pauses when the trial ends or the email allowance is reached. Reading and replying remain available. There are no overage charges; paid allowances reset each monthly billing period. See [pricing](/pricing).
 
 This page describes the product, not a guarantee of AI accuracy or a record of completed live-integration testing. Private inbox pages and APIs are not public product documentation.
 

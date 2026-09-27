@@ -2,18 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import {
-  Inbox,
-  FilePenLine,
-  Tags,
-  Layers2,
-  Settings2,
-  LogOut,
-  Menu,
-  X,
-  Plus,
-  ArrowUpRight,
-} from 'lucide-react';
+import { Inbox, FilePenLine, Tags, Layers2, Settings2, LogOut, Menu, X, Plus } from 'lucide-react';
 import { Dialog } from 'radix-ui';
 import { useEffect, useState } from 'react';
 import { useWorkspaceMetadata, useInboxCounts } from '@/hooks/useFetch';
@@ -89,10 +78,6 @@ function NavigationContent({ onNavigate }: { onNavigate?: () => void }) {
         </nav>
       </div>
       <div className="sidebar-bottom">
-        <Link className="sidebar-help" href="/" onClick={onNavigate}>
-          About evailbox
-          <ArrowUpRight size={14} />
-        </Link>
         <div className="profile">
           <span className="profile-avatar">
             {data?.user.email.slice(0, 1).toUpperCase() ?? 'E'}

@@ -48,6 +48,7 @@ describe('message content authorization and recovery', () => {
     const response = await emailContentResponse('owner', 'PERSONAL', 'email', false);
     expect(response.headers.get('Content-Type')).toContain('text/html');
     expect(response.headers.get('Cache-Control')).toContain('no-store');
+    expect(response.headers.get('X-Email-Content-Fallback')).toBe('0');
     const body = await response.text();
     expect(body).toContain('Full newsletter');
     expect(body).not.toContain('encrypted:');
@@ -85,7 +86,9 @@ describe('message content authorization and recovery', () => {
       body: 'LEGACY BODY',
     });
     mocks.fetch.mockRejectedValue(new Error('sensitive provider detail'));
-    const body = await (await emailContentResponse('owner', 'PERSONAL', 'email', false)).text();
+    const response = await emailContentResponse('owner', 'PERSONAL', 'email', false);
+    expect(response.headers.get('X-Email-Content-Fallback')).toBe('1');
+    const body = await response.text();
     expect(body).toContain('couldn’t load');
     expect(body).toContain('Saved text');
     expect(body).not.toContain('sensitive provider detail');

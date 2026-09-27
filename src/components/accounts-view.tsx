@@ -1,16 +1,16 @@
 'use client';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ProviderLogo } from './provider-logo';
 import { RefreshCw, Plus, ShieldCheck, Unplug, Check } from 'lucide-react';
 import { useWorkspaceMetadata, useAction } from '@/hooks/useFetch';
 import { useDemo } from './providers';
 import { useWorkspaceSelection } from './workspace-selection';
-import { workspacePath } from '@/lib/workspace-selection';
 import { Button } from './ui/button';
 import { Skeleton } from './ui/loader';
 import { ConfirmDialog } from './confirm-dialog';
+import { ConnectAccountDialog } from './connect-account-dialog';
 import { EmptyState, ErrorState } from './states';
-import type { EmailAccount } from '@/types';
+import type { EmailAccount, Provider } from '@/types';
 import { relativeTime } from '@/lib/utils';
 import { toast } from 'sonner';
 
@@ -20,15 +20,16 @@ export function AccountsView({ embedded = false }: { embedded?: boolean }) {
     mutation = useAction(),
     demo = useDemo();
   const [disconnect, setDisconnect] = useState<EmailAccount | null>(null);
-  function connect(provider: string) {
+  const [connectProvider, setConnectProvider] = useState<Provider | null>(null);
+  const connectTrigger = useRef<HTMLButtonElement | null>(null);
+  function connect(provider: Provider, trigger: HTMLButtonElement) {
     if (demo) {
       toast.info('Connecting real inboxes is unavailable in demo mode.');
       return;
     }
-    window.location.assign(
-      new URL(workspacePath(`/api/accounts/${provider}/auth`, workspace), window.location.origin)
-        .href,
-    );
+    // Safari does not focus clicked buttons; preserve the actual opening control.
+    connectTrigger.current = trigger;
+    setConnectProvider(provider);
   }
   return (
     <>
@@ -114,7 +115,10 @@ export function AccountsView({ embedded = false }: { embedded?: boolean }) {
             />
           )}
           <div className="connect-options">
-            <button onClick={() => connect('gmail')} className="connect-card">
+            <button
+              onClick={(event) => connect('GMAIL', event.currentTarget)}
+              className="connect-card"
+            >
               <span className="provider-mark provider-gmail">
                 <ProviderLogo provider="GMAIL" />
               </span>
@@ -124,7 +128,10 @@ export function AccountsView({ embedded = false }: { embedded?: boolean }) {
               </div>
               <Plus size={19} />
             </button>
-            <button onClick={() => connect('outlook')} className="connect-card">
+            <button
+              onClick={(event) => connect('OUTLOOK', event.currentTarget)}
+              className="connect-card"
+            >
               <span className="provider-mark provider-outlook">
                 <ProviderLogo provider="OUTLOOK" />
               </span>
@@ -149,6 +156,13 @@ export function AccountsView({ embedded = false }: { embedded?: boolean }) {
           </div>
         </div>
       )}
+      <ConnectAccountDialog
+        provider={connectProvider}
+        workspace={workspace}
+        workspaceName={name}
+        onClose={() => setConnectProvider(null)}
+        returnFocusRef={connectTrigger}
+      />
       <ConfirmDialog
         open={!!disconnect}
         onOpenChange={(v) => !v && setDisconnect(null)}

@@ -20,14 +20,14 @@ Open `http://localhost:3000/inbox`. `APP_MODE=demo` uses fictional, browser-loca
 
 - Google sign-in through Supabase; separate Gmail/Outlook mailbox OAuth connections.
 - Personal and Work isolation for accounts, messages, tags, queries and cached summaries.
-- Gmail initially imports the last **30 days of Inbox mail**, not the last 100 emails. Outlook initially traverses its Inbox folder.
+- New Gmail and Outlook connections initially import up to the **latest 100 Inbox emails**, then process new arrivals. Provider checkpoints persist the cap across worker turns and retries.
 - Durable Inngest work: one provider page and up to 20 classification attempts per turn, followed by a continuation when work remains. Per-user serialization and configurable global concurrency defaulting to 5.
 - Metadata is saved and signaled before inference. Inbox progress shows how many imported emails have current decisions; totals grow during import.
 - Imported message bodies are transient. Fetch and classification share one Inngest step, so normal imports reuse the body without persisting it to Postgres or step results. Recovery/reclassification may fetch again.
 - Current tag/content/model versions determine cache validity; no-match and uncertain decisions are cached too. Probabilities are not guarantees of correctness.
 - Independent 50-message cursor reads, private browser summary caching, Supabase Realtime invalidation, and polling recovery.
 - Explicit replies/reply-all, persisted user-written drafts, read/archive actions and account management. No automated sending.
-- Starter/Heavy plan preview with billing and allowance enforcement disabled. Notifications and digests are retired.
+- Starter ($4.99/month, 10,000 emails) and Heavy ($7.99/month, 20,000), with a three-day no-card trial. Stripe checkout, customer portal, signed webhooks and server-enforced allowances are implemented; billing stays in setup preview until explicitly enabled. See [billing setup](docs/engineering/BILLING.md). Notifications and digests are retired.
 
 ## Configuration and verification
 

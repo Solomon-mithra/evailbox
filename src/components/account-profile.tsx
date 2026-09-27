@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useDemo, usePrivateCache } from './providers';
@@ -9,17 +9,30 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Skeleton } from './ui/loader';
 import { ErrorState } from './states';
+import { BillingPanel } from './billing-panel';
 import { api } from '@/lib/api';
 import { plans, usagePeriod, type AccountOverview, type PlanId } from '@/lib/plans';
+
 export function AccountProfile({ suggestedPlan }: { suggestedPlan?: PlanId }) {
   const { user, ready } = usePrivateCache();
   const { workspace } = useWorkspaceSelection();
   const demo = useDemo();
+  const billingReturn = useSearchParams().get('billing');
+  const [pollStarted] = useState(() => Date.now());
+  const reconcile = billingReturn === 'success' || billingReturn === 'portal';
   const query = useQuery({
-    queryKey: ['private', user?.id, workspace, 'account'],
+    queryKey: ['private', user?.id, workspace, 'account', billingReturn],
     enabled: !!user && ready,
+    refetchOnMount: 'always',
+    refetchInterval: (current) =>
+      billingReturn === 'success' &&
+      !demo &&
+      current.state.data?.billing.access !== 'active' &&
+      Date.now() - pollStarted < 60_000
+        ? 2000
+        : false,
     queryFn: (): Promise<AccountOverview> => {
-      if (!demo) return api.get('/api/account');
+      if (!demo) return reconcile ? api.post('/api/billing/refresh') : api.get('/api/account');
       const period = usagePeriod();
       return Promise.resolve({
         user: {
@@ -34,54 +47,56 @@ export function AccountProfile({ suggestedPlan }: { suggestedPlan?: PlanId }) {
           periodStart: period.start.toISOString(),
           periodEnd: period.end.toISOString(),
         },
-        billingEnabled: false,
+        billingEnabled: true,
         limitsEnforced: false,
+        billing: {
+          configured: false,
+          access: 'trial_available',
+          status: null,
+          trialEndsAt: null,
+          canStartTrial: true,
+          canManage: false,
+          cancelAtPeriodEnd: false,
+          processingAllowed: true,
+        },
       });
     },
   });
+  if (query.isPending) return <Skeleton />;
+  if (query.isError) return <ErrorState retry={() => void query.refetch()} />;
   return (
-    <section className="settings-section">
-      <h2>Profile and plan</h2>
-      {query.isPending ? (
-        <Skeleton />
-      ) : query.isError ? (
-        <ErrorState retry={() => void query.refetch()} />
-      ) : (
-        <ProfileForm
-          key={`${query.data.user.displayName}:${query.data.plan.requested}`}
-          account={query.data}
-          demo={demo}
-          suggestedPlan={suggestedPlan}
-        />
-      )}
-    </section>
+    <>
+      <BillingPanel
+        account={query.data}
+        demo={demo}
+        suggestedPlan={suggestedPlan}
+        billingReturn={billingReturn}
+        verified={query.isFetchedAfterMount && !query.isFetching}
+        refreshing={query.isFetching}
+        refresh={() => void query.refetch()}
+      />
+      <section className="settings-section" aria-labelledby="profile-heading">
+        <h2 id="profile-heading">Profile</h2>
+        <ProfileForm key={query.data.user.displayName} account={query.data} demo={demo} />
+      </section>
+    </>
   );
 }
-function ProfileForm({
-  account,
-  demo,
-  suggestedPlan,
-}: {
-  account: AccountOverview;
-  demo: boolean;
-  suggestedPlan?: PlanId;
-}) {
+function ProfileForm({ account, demo }: { account: AccountOverview; demo: boolean }) {
   const client = useQueryClient();
   const [name, setName] = useState(account.user.displayName);
-  const [choice, setChoice] = useState<PlanId>(
-    suggestedPlan ?? account.plan.requested ?? account.plan.id,
-  );
   const [saving, setSaving] = useState(false);
   async function save() {
+    if (saving) return;
     setSaving(true);
     try {
       if (demo) {
         toast.info('Profile preview. No live account was changed.');
         return;
       }
-      await api.patch('/api/account', { displayName: name, requestedPlan: choice });
+      await api.patch('/api/account', { displayName: name });
       await client.invalidateQueries({ queryKey: ['private', account.user.id] });
-      toast.success('Profile and plan preference saved. No payment collected.');
+      toast.success('Profile saved.');
     } catch (error) {
       toast.error((error as Error).message);
     } finally {
@@ -109,58 +124,8 @@ function ProfileForm({
           autoComplete="name"
           style={{ maxWidth: 260 }}
         />
-      </div>
-      <div className="setting-row">
-        <div>
-          <strong>{account.plan.name} access</strong>
-          <p>
-            {account.plan.source === 'manual' ? 'Granted to your account.' : 'Preview access.'}{' '}
-            Billing is off and allowances are not enforced.
-          </p>
-        </div>
-        <Link href="/pricing">View pricing</Link>
-      </div>
-      <div className="setting-row">
-        <div>
-          <strong>
-            {account.usage.emails.toLocaleString()} / {account.plan.monthlyEmails.toLocaleString()}{' '}
-            emails
-          </strong>
-          <p>
-            First-time classifications this calendar month (UTC). Refreshing and replying do not
-            count.
-          </p>
-        </div>
-      </div>
-      <div className="setting-row">
-        <div>
-          <label htmlFor="plan-choice">Plan preference</label>
-          <p>
-            Save your choice for launch. This does not start a subscription or change granted
-            access.
-          </p>
-        </div>
-        <select
-          id="plan-choice"
-          className="input"
-          style={{ maxWidth: 230 }}
-          value={choice}
-          onChange={(event) => setChoice(event.target.value as PlanId)}
-        >
-          {Object.values(plans).map((plan) => (
-            <option key={plan.id} value={plan.id}>
-              {plan.name} — ${plan.price}/month
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="setting-row">
-        <p>
-          We will ask you to opt in before charging. There is no subscription to cancel during the
-          preview.
-        </p>
-        <Button type="submit" disabled={saving}>
-          {saving ? 'Saving…' : 'Save changes'}
+        <Button type="submit" disabled={saving || name === account.user.displayName}>
+          {saving ? 'Saving…' : 'Save profile'}
         </Button>
       </div>
     </form>

@@ -54,7 +54,10 @@ beforeEach(() => {
   m.send.mockResolvedValue({ ids: ['event'] });
   m.signal.mockResolvedValue(undefined);
 });
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.useRealTimers();
+});
 
 it('durably requests work before publishing and never processes inline', async () => {
   const result = await enqueueUserWork('u', { sync: true, workspace: 'WORK' });
@@ -183,8 +186,36 @@ it('continues importing while inference is cooling down', async () => {
   expect(result.classification).toMatchObject({
     classified: 0,
     remaining: 1,
-    retryAfterSeconds: 60,
   });
+});
+
+it('does not slide an existing cooldown forward when queued workers arrive early', async () => {
+  vi.useFakeTimers();
+  const start = Date.parse('2026-09-27T00:00:00Z');
+  const originalRetry = new Date(start + 60_000);
+  m.find.mockResolvedValue({
+    id: 'u',
+    workRevision: 7,
+    workRequested: true,
+    workFailures: 0,
+    workNotBefore: originalRetry,
+  });
+  const { ApiError } = await import('@/lib/errors');
+  m.sync.mockResolvedValue({ synced: 0, errors: 0, pending: false });
+  m.classify.mockRejectedValue(new ApiError(429, 'WORK_COOLDOWN', 'paused'));
+  for (const elapsed of [20_000, 40_000, 59_000]) {
+    vi.setSystemTime(start + elapsed);
+    const { sync, classification } = await processInboxBatch('u');
+    await finishWorkBatch('u', 7, sync, classification);
+    expect(m.update.mock.calls.at(-1)![0].data.workNotBefore).toEqual(originalRetry);
+  }
+});
+
+it('still backs off while another worker holds the processing lease', async () => {
+  const { ApiError } = await import('@/lib/errors');
+  m.sync.mockResolvedValue({ synced: 0, errors: 0, pending: false });
+  m.classify.mockRejectedValue(new ApiError(409, 'WORK_IN_PROGRESS', 'busy'));
+  expect((await processInboxBatch('u')).classification.retryAfterSeconds).toBe(60);
 });
 
 it('discards transient bodies and sanitizes errors when classification crashes after import', async () => {

@@ -49,6 +49,34 @@ it('supports tag create, edit, classifier and delete lifecycle', () => {
   mutateDemo('/api/tags/' + tag.id, 'DELETE', {});
   expect(readDemo().tags.find((t) => t.id === tag.id)).toBeUndefined();
 });
+it('checks at most 100 unprocessed demo emails across tags per click, newest first', () => {
+  const saved = seedDemo();
+  saved.emails = Array.from({ length: 250 }, (_, i) => ({
+    ...saved.emails[0],
+    id: String(i).padStart(3, '0'),
+    classifications: [],
+    receivedAt: new Date(Date.parse('2026-09-01T00:00:00Z') + i * 1000).toISOString(),
+  }));
+  store.set('evailbox-demo-v1', JSON.stringify(saved));
+  mutateDemo('/api/classify/batch', 'POST', {});
+  let checked = readDemo().emails.filter(
+    (email) => email.classifications.length === saved.tags.length,
+  );
+  expect(checked).toHaveLength(100);
+  expect(checked.map((email) => email.id)).toEqual(
+    saved.emails.slice(150).map((email) => email.id),
+  );
+  mutateDemo('/api/classify/batch', 'POST', {});
+  checked = readDemo().emails.filter((email) => email.classifications.length === saved.tags.length);
+  expect(checked).toHaveLength(200);
+});
+it('retains demo matches and refreshes their displayed priority after a metadata edit', () => {
+  mutateDemo('/api/tags/immigration', 'PATCH', { priority: 'LOW', description: 'Updated' });
+  const result = filterWorkspace(readDemo(), { tag: 'immigration' });
+  expect(result.total).toBe(1);
+  expect(result.emails[0].classifications[0].tag.priority).toBe('LOW');
+  expect(readDemo().tags.find((tag) => tag.id === 'immigration')?.version).toBe(1);
+});
 it('persists inbox refresh preferences across reads', () => {
   mutateDemo('/api/settings', 'PATCH', { refreshMinutes: 15 });
   expect(readDemo().preferences).toMatchObject({ refreshMinutes: 15 });

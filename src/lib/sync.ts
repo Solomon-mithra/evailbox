@@ -83,6 +83,8 @@ export async function syncMailboxes(
           break;
         }
         stage = 'save_page';
+        const savedMessages = [] as typeof result.messages;
+        const createIds = result.createIds ? new Set(result.createIds) : undefined;
         await db.$transaction(
           async (tx) => {
             const [{ observedAt }] = await tx.$queryRaw<
@@ -94,6 +96,18 @@ export async function syncMailboxes(
               const contentHash = emailContentHash(message);
               const { body: _body, ...stored } = message;
               void _body;
+              if (createIds && !createIds.has(message.providerMessageId)) {
+                const updated = await tx.email.updateMany({
+                  where: {
+                    userId,
+                    accountId: account.id,
+                    providerMessageId: message.providerMessageId,
+                  },
+                  data: { ...stored, contentHash, inInbox: true, lastSeenAt: observedAt },
+                });
+                if (updated.count) savedMessages.push(message);
+                continue;
+              }
               await tx.email.upsert({
                 where: {
                   accountId_providerMessageId: {
@@ -112,6 +126,7 @@ export async function syncMailboxes(
                 },
                 update: { ...stored, contentHash, inInbox: true, lastSeenAt: observedAt },
               });
+              savedMessages.push(message);
             }
             // Retain the source and its account relation while an editable/sent draft exists.
             // Everything retained is hidden from inbox reads and future classification work.
@@ -166,13 +181,13 @@ export async function syncMailboxes(
           { maxWait: 2000, timeout: Math.min(20000, saveBudget - 2000) },
         );
         // Populate only after commit. Caller discards these bodies before the step returns.
-        for (const message of result.messages)
+        for (const message of savedMessages)
           options.bodies?.set(bodyKey(account.id, message.providerMessageId), {
             body: message.body,
             contentHash: emailContentHash(message),
           });
         pagesLeft--;
-        synced += result.messages.length;
+        synced += savedMessages.length;
         cursor = result.cursor;
         if (!result.hasMore) break;
         pending = true;

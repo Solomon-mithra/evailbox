@@ -1,7 +1,7 @@
 'use client';
 import { Dialog as Primitive } from 'radix-ui';
 import { X } from 'lucide-react';
-import { useRef, type ReactNode } from 'react';
+import { useRef, type ReactNode, type RefObject } from 'react';
 export function Dialog({
   open,
   onOpenChange,
@@ -10,6 +10,7 @@ export function Dialog({
   children,
   wide = false,
   className = '',
+  returnFocusRef,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -18,6 +19,7 @@ export function Dialog({
   children: ReactNode;
   wide?: boolean;
   className?: string;
+  returnFocusRef?: RefObject<HTMLElement | null>;
 }) {
   const returnFocus = useRef<HTMLElement | null>(null);
   return (
@@ -33,7 +35,7 @@ export function Dialog({
           onCloseAutoFocus={(event) => {
             // These controlled dialogs open from lists and menus, without a Dialog.Trigger.
             event.preventDefault();
-            const target = returnFocus.current;
+            const target = returnFocusRef?.current ?? returnFocus.current;
             if (target?.isConnected && target !== document.body) target.focus();
             else document.getElementById('main-content')?.focus();
           }}

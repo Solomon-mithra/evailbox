@@ -3,6 +3,7 @@ import type { Workspace, Tag, Email, Filters } from '@/types';
 import type { TagInput } from './validation';
 import type { WorkspaceId } from './workspace-selection';
 import { migrateStoredValue } from './browser-storage';
+import { TAG_HISTORY_LIMIT } from './tag-policy';
 const storageKey = 'evailbox-demo-v1';
 // Read old keys once so the rename preserves existing demo changes.
 const legacyStorageKey = 'jevinbox-demo-v1';
@@ -345,10 +346,29 @@ export function mutateDemo(
         w.tags.some((t) => t.id !== id && t.name.toLowerCase() === String(data.name).toLowerCase())
       )
         throw new Error('A tag with this name already exists.');
-      w.tags = w.tags.map((t) => (t.id === id ? { ...t, ...data, version: t.version + 1 } : t));
-      w.emails.forEach(
-        (e) => (e.classifications = e.classifications.filter((c) => c.tagId !== id)),
+      const current = w.tags.find((t) => t.id === id);
+      const matchingChanged =
+        current &&
+        (['name', 'prompt', 'keywords', 'senders'] as const).some(
+          (key) =>
+            data[key] !== undefined && JSON.stringify(data[key]) !== JSON.stringify(current[key]),
+        );
+      w.tags = w.tags.map((t) =>
+        t.id === id ? { ...t, ...data, version: t.version + (matchingChanged ? 1 : 0) } : t,
       );
+      if (matchingChanged)
+        w.emails.forEach(
+          (e) => (e.classifications = e.classifications.filter((c) => c.tagId !== id)),
+        );
+      else {
+        const updated = w.tags.find((t) => t.id === id);
+        if (updated)
+          w.emails.forEach((email) =>
+            email.classifications.forEach((classification) => {
+              if (classification.tagId === id) classification.tag = updated;
+            }),
+          );
+      }
     }
   } else if (path.startsWith('/api/emails/') && path.endsWith('/actions')) {
     const messageId = path.split('/').at(-2);
@@ -369,25 +389,36 @@ export function mutateDemo(
   } else if (path === '/api/sync') {
     w.accounts = w.accounts.map((a) => ({ ...a, lastSync: new Date().toISOString() }));
   } else if (path.startsWith('/api/classify')) {
-    for (const e of w.emails) {
-      if (data.emailId && e.id !== data.emailId) continue;
-      for (const t of w.tags) {
-        if (data.tagId && t.id !== data.tagId) continue;
+    const selectedTags = w.tags.filter((tag) => !data.tagId || tag.id === data.tagId);
+    const isPending = (email: Email, tag: Tag) =>
+      !email.classifications.some((c) => c.tagId === tag.id && c.tagVersion === tag.version);
+    const pending = w.emails
+      .filter(
+        (email) =>
+          (!data.emailId || email.id === data.emailId) &&
+          (!Array.isArray(data.emailIds) || data.emailIds.includes(email.id)) &&
+          selectedTags.some((tag) => isPending(email, tag)),
+      )
+      .sort((a, b) => b.receivedAt.localeCompare(a.receivedAt) || b.id.localeCompare(a.id))
+      .slice(0, TAG_HISTORY_LIMIT);
+    for (const e of pending) {
+      for (const t of selectedTags) {
+        if (!isPending(e, t)) continue;
         const match =
           t.keywords.some((k) =>
             `${e.subject} ${e.snippet}`.toLowerCase().includes(k.toLowerCase()),
           ) || t.senders.includes(e.sender);
-        if (!e.classifications.some((c) => c.tagId === t.id))
-          e.classifications.push({
-            id: crypto.randomUUID(),
-            tagId: t.id,
-            tagVersion: t.version,
-            tag: t,
-            matched: match,
-            confidence: match ? 100 : 0,
-            decision: match ? 'match' : 'no_match',
-            reasoning: 'Demo keyword/sender rule result. Live AI was not called.',
-          });
+        e.classifications = e.classifications.filter((c) => c.tagId !== t.id);
+        e.classifications.push({
+          id: crypto.randomUUID(),
+          tagId: t.id,
+          tagVersion: t.version,
+          tag: t,
+          matched: match,
+          confidence: match ? 100 : 0,
+          decision: match ? 'match' : 'no_match',
+          reasoning: 'Demo keyword/sender rule result. Live AI was not called.',
+        });
       }
     }
   } else if (path === '/api/user') {

@@ -7,8 +7,22 @@ Updated 2026-09-26. This is a dated evidence summary, not a guarantee that exter
 - Durable signup-burst processing: default 5 global concurrent steps, configurable up to 100; one provider page and up to 20 classification attempts per user turn. Inngest keyed scheduling offers best-effort fairness, not strict round-robin guarantees.
 - Same-step transient body reuse; no imported email bodies in Postgres or Inngest step results. Summaries, classifications, encrypted credentials and explicit reply drafts remain persisted.
 - Metadata-first inbox rendering, current-decision progress counts, realtime signals and active-work polling.
-- Full regular suite: 325 tests passed; typecheck and lint passed. Demo inbox and All mail navigation were checked without console errors during the burst implementation.
+- Latest regular suite: 430 tests passed, with the opt-in burst fixture skipped. Lint, typecheck and production build passed after the initial-import limit change. Earlier environment parity and T3 browser interaction/DOM checks covered pricing, plan selection, demo trial start and mobile widths.
 - Synthetic 100-user fixtures passed at 10,000 and 123,400 emails. A 10,000-email fixture also passed with worker concurrency 100. These use mocked providers/inference, PGlite and a local FIFO scheduler; they do not measure hosted Gmail/Jev/Inngest latency.
+
+## Initial-import limit and authorized mail reset
+
+New Gmail and Outlook connections now import at most 100 existing Inbox messages, preserving the allowance across worker turns. New arrivals and updates to retained messages continue through incremental checkpoints. Outlook uses lightweight older delta references to obtain its checkpoint without importing their content; legacy cursors remain readable.
+
+On 2026-09-26, the owner authorized clearing only their app-side mail data and restarting sync. The transaction removed 740 cached emails and 20 AI decisions (zero drafts), preserving the user, four tags, one Gmail connection, billing, usage and cooldowns. At 23:39:22 UTC, the restarted local worker had saved exactly 100 emails, reached Gmail history mode, and cleared the mailbox sync request with no sync error. Five emails were tagged at that observation; inference continued under the existing provider 429 cooldown. Outlook coverage is fixture-based; this live check used Gmail. Provider mail was not deleted and no deployment was made.
+
+The local app uses `INNGEST_DEV=1`; its worker was started with `npx --yes inngest-cli@latest dev --no-discovery -u http://localhost:3000/api/inngest`. Both processes must run for ongoing local processing. Earlier cloud-configuration observations below remain historical, not evidence of current hosted activation.
+
+## Stripe billing implementation
+
+Starter is $4.99/month for 10,000 emails; Heavy is $7.99/month for 20,000. The three-day trial requires no card, starts explicitly, and expires without charging. The integration includes hosted checkout, portal plan changes/cancellation, signed webhook reconciliation, billing-period usage caps and private billing tables. `BILLING_ENABLED=false` retains preview access until setup is complete.
+
+Stripe credentials remain blank in the newly added environment slots. The catalog command, database migration, and test/live checkout must be run against the intended services after keys are supplied. No Stripe account/catalog mutations, hosted migration, charge, subscription, or deployment were performed by this implementation. See [setup](engineering/BILLING.md).
 
 ## Service/configuration observations
 
@@ -21,7 +35,7 @@ Updated 2026-09-26. This is a dated evidence summary, not a guarantee that exter
 
 ## Maintenance verification
 
-All four root env files have identical sets of 33 variable names; existing values were preserved per file. The name-only checker is part of CI and was verified against matching templates, missing keys, duplicate names and value redaction. Retrieved keys are absent from tracked files and other env files. Local environment validation passes in live/cloud mode.
+All four root env files have identical sets of 39 variable names; existing values were preserved per file. The name-only checker is part of CI and was verified against matching templates, missing keys, duplicate names and value redaction. Retrieved keys are absent from tracked files and other env files. Local environment validation passes in live/cloud mode.
 
 Superseded documentation was consolidated, 17 Markdown files removed (including the completed local burst plan), and retained relative links checked. The full 325-test suite, lint and typecheck passed after maintenance. The historical cost calculator labels its output obsolete.
 

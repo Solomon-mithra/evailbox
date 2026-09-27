@@ -17,4 +17,6 @@ export type SyncPage = {
   hasMore: boolean;
   deletedIds?: string[];
   reset?: boolean;
+  /** When present, other messages may update existing rows but cannot create older mail. */
+  createIds?: string[];
 };
