@@ -1,13 +1,16 @@
 # Current implementation and activation status
 
-Updated 2026-09-26. This is a dated evidence summary, not a guarantee that external configuration remains unchanged.
+Updated 2026-09-26 (America/Los_Angeles), following the deployment-readiness audit of `d3292a6`. This is a dated evidence summary, not a guarantee that external configuration remains unchanged.
+
+**Live launch is not ready yet.** Local checks pass, but production service configuration is incomplete. Gmail Pub/Sub and Outlook setup are pending. Stripe test credentials are present locally, but development webhook delivery and reconciliation remain unverified.
 
 ## Implemented and locally verified
 
 - Durable signup-burst processing: default 5 global concurrent steps, configurable up to 100; one provider page and up to 20 classification attempts per user turn. Inngest keyed scheduling offers best-effort fairness, not strict round-robin guarantees.
 - Same-step transient body reuse; no imported email bodies in Postgres or Inngest step results. Summaries, classifications, encrypted credentials and explicit reply drafts remain persisted.
 - Metadata-first inbox rendering, current-decision progress counts, realtime signals and active-work polling.
-- Latest regular suite: 430 tests passed, with the opt-in burst fixture skipped. Lint, typecheck and production build passed after the initial-import limit change. Earlier environment parity and T3 browser interaction/DOM checks covered pricing, plan selection, demo trial start and mobile widths.
+- Latest audit: 575 tests passed across 57 files, with one opt-in burst test skipped. Environment-name parity, Prisma generation, lint, typecheck and production build passed. `npm audit --omit=dev` reported zero known vulnerabilities. GitHub CI passed for `d3292a6`.
+- The local production server rendered sign-in successfully. Earlier browser checks covered pricing, plan selection, demo trial start and mobile widths. These checks do not establish hosted authentication, mailbox processing or payment readiness.
 - Synthetic 100-user fixtures passed at 10,000 and 123,400 emails. A 10,000-email fixture also passed with worker concurrency 100. These use mocked providers/inference, PGlite and a local FIFO scheduler; they do not measure hosted Gmail/Jev/Inngest latency.
 
 ## Initial-import limit and authorized mail reset
@@ -22,28 +25,38 @@ The local app uses `INNGEST_DEV=1`; its worker was started with `npx --yes innge
 
 Starter is $4.99/month for 10,000 emails; Heavy is $7.99/month for 20,000. The three-day trial requires no card, starts explicitly, and expires without charging. The integration includes hosted checkout, portal plan changes/cancellation, signed webhook reconciliation, billing-period usage caps and private billing tables. `BILLING_ENABLED=false` retains preview access until setup is complete.
 
-Stripe credentials remain blank in the newly added environment slots. The catalog command, database migration, and test/live checkout must be run against the intended services after keys are supplied. No Stripe account/catalog mutations, hosted migration, charge, subscription, or deployment were performed by this implementation. See [setup](engineering/BILLING.md).
+- `.env.local` currently has `BILLING_ENABLED=true`, a **test-mode** Stripe secret key, a webhook signing secret, both price IDs and a portal configuration ID. Presence of these values does not verify the Stripe catalog or webhook delivery.
+- **Development webhook verification is pending.** The audit did not establish that a Stripe CLI listener is running, that its signing secret matches the app, or that an actual test event reaches `/api/webhooks/stripe` and updates billing state. This is unverified, not a confirmed webhook failure.
+- A Checkout/portal return can reconcile billing through `/api/billing/refresh`; a successful UI return alone does not prove the webhook works.
+- `.env.production` has billing disabled and blank Stripe settings. The linked Vercel project's Production environment has no Stripe configuration. Live catalog, deployed webhook registration and paid-launch acceptance remain pending.
+- The configured Supabase database already has the billing migration applied. Follow [billing setup and acceptance](engineering/BILLING.md) for the remaining work.
 
 ## Service/configuration observations
 
-- Gmail and Jev are already implemented/configured according to the owner. Their existing local values were preserved; this maintenance task did not make a new paid inference or mailbox request.
-- Inngest's existing Production signing and event keys were retrieved through the owner's authenticated Safari session and saved only to ignored `.env.local`. Keys were not regenerated, rotated, printed or copied into templates/other environments.
-- The Inngest Production dashboard showed a 5-concurrency tier and **no active apps** on 2026-09-26. Key presence is not hosted activation. Register/sync the reachable deployed `/api/inngest` endpoint in the matching environment before expecting cloud processing.
-- The local DB URL is already configured for Supabase transaction pooling. Production environment values were preserved; a production pooler change is not claimed.
-- The previous committed record (`1b14889`) reports hosted migrations, removal of the imported body column and the owner's Heavy grant on 2026-09-26. This maintenance task did not rerun those database operations. Verify current migration status against the intended database before rollout.
-- Gmail push infrastructure, Outlook consent/subscriptions, private Realtime deployment settings and end-to-end hosted recovery were not newly verified here. Existing Gmail OAuth functionality alone does not prove Pub/Sub activation.
+- **Vercel:** The linked project is `jevinbox`. Its Production environment has only three app-defined variables: `APP_MODE`, `CRON_SECRET` and `NEXT_PUBLIC_APP_URL`. Database, Supabase, Gmail, AI and Inngest credentials are absent there. The public site still serves the September 21 demo deployment. The local `.env.production` file also selects `APP_MODE=demo`; local files do not establish hosted configuration.
+- **Gmail API:** Local OAuth credentials are present, and the earlier live import verified Gmail API ingestion. This is separate from Pub/Sub notification delivery.
+- **Gmail Pub/Sub — not set up:** All four `GMAIL_PUBSUB_*` settings are blank in the local environment files and absent from Vercel Production. The configured database has one Gmail mailbox subscription with status `unconfigured`. Provision the topic, publisher permissions and authenticated push subscription, configure the callback, then verify watch registration, delivery and renewal. Immediate email-arrival processing is not active through Pub/Sub. The 15-minute recovery sync requires a working Inngest worker.
+- **Outlook — setup not started:** Microsoft OAuth credentials remain placeholders in the local environment files, `OUTLOOK_WEBHOOK_URL` is blank, and these settings are absent from Vercel Production. App registration/credentials, consent, account connection and Graph webhook delivery/renewal remain pending. Outlook behavior is covered by fixtures, not a live mailbox acceptance test.
+- **Jev:** The local API key is present; the earlier live import observed provider 429 cooldowns. The production file contains a placeholder key and Vercel Production has no AI configuration. The readiness audit did not make a paid inference request or verify production throughput.
+- **Inngest:** Production signing/event keys exist in ignored `.env.local`, but local execution currently uses `INNGEST_DEV=1`. Vercel Production has neither key. An earlier dashboard observation showed a 5-concurrency tier and no active apps; the dashboard was not rechecked in this audit. Configure cloud mode, register/sync the deployed `/api/inngest` endpoint, and verify hosted processing, recovery and renewal.
+- **Database:** A fresh read-only check confirmed all 11 committed migrations are applied, with none pending or failed, to the Supabase database referenced by both local environment files. Runtime configuration uses transaction pooling. Vercel Production has no database connection configured yet; recheck migrations if a different deployment database is selected.
+- **Realtime:** The database's `evailbox_inbox_signals` policy exists. Browser testing of the local production build confirmed that `next.config.ts` blocks Supabase WebSockets because `connect-src` lacks `wss://*.supabase.co`. This code issue remains open. Private-only dashboard settings, cross-user authorization and end-to-end hosted updates still need verification.
 
 ## Maintenance verification
 
-All four root env files have identical sets of 39 variable names; existing values were preserved per file. The name-only checker is part of CI and was verified against matching templates, missing keys, duplicate names and value redaction. Retrieved keys are absent from tracked files and other env files. Local environment validation passes in live/cloud mode.
+All four root env files have identical sets of 39 variable names. The name-only checker is part of CI and was verified against matching templates, missing keys, duplicate names and value redaction. This checks names, not whether credentials work or optional services are active. Local base environment validation passes in live mode; the local worker is configured for development mode.
 
-Superseded documentation was consolidated, 17 Markdown files removed (including the completed local burst plan), and retained relative links checked. The full 325-test suite, lint and typecheck passed after maintenance. The historical cost calculator labels its output obsolete.
+Earlier maintenance consolidated superseded documentation and checked retained relative links. The historical cost calculator labels its output obsolete. The latest check counts are recorded above; older test counts are not current readiness evidence. The readiness audit made no deployment, service-configuration change, migration, payment or outbound-email request.
 
 ## Remaining operational work
 
-1. Deploy the intended code and environment-specific keys, then register/sync the Inngest app. A localhost URL is not reachable by the hosted service without separately configured connectivity.
-2. Verify callback origins, provider notification delivery, renewal and realtime authorization for that deployment.
-3. Use 100 disposable staging users/mailboxes with `npm run load:burst -- staging-user-ids.json` for real first-tag/completion latency. Do not replace an interview performance claim with synthetic timings.
-4. Record the deployed revision, service environment, timestamps and actual outcomes after each live check. No new deployment, paid plan change or outbound email was performed in this maintenance task.
+1. Fix the Supabase WebSocket allowance in the browser security policy and verify the connection in a production build.
+2. Set up Gmail Pub/Sub using [mailbox events](engineering/MAILBOX_EVENTS.md), populate all four settings, and verify an active watch plus authenticated notification delivery and renewal.
+3. Start Outlook setup: register/configure the Microsoft app, add real credentials and the public webhook URL, obtain consent, and verify a connected test mailbox plus Graph subscription lifecycle.
+4. Verify Stripe webhooks in development using the [local listener instructions](engineering/BILLING.md#local-setup-after-keys-are-available). Match the listener's signing secret, perform a test-mode flow, and confirm successful event delivery and database reconciliation independently of the browser return. Check duplicate delivery and payment-failure handling. Record the result before marking development billing verified.
+5. Configure the intended live Vercel environment and final callback origins, deploy the intended revision, then register/sync the cloud Inngest app. Verify processing continues with the browser closed and that recovery/renewal schedules run.
+6. Verify hosted sign-in, Gmail and Outlook arrival-to-classification flows, private realtime authorization and inbox updates. Keep production billing disabled until live Stripe configuration and the billing acceptance checks are complete.
+7. Use 100 disposable staging users/mailboxes with `npm run load:burst -- staging-user-ids.json` for real first-tag/completion latency. Do not replace a hosted performance claim with synthetic timings.
+8. Record the deployed revision, service environment, timestamps and actual outcomes after each live check. Distinguish implemented, configured and verified states.
 
 Configuration details: [environment](engineering/ENVIRONMENT.md). Activation: [service setup](engineering/SERVICE_SETUP.md). Operations and staging load test: [runbook](engineering/RUNBOOK.md).
