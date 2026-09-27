@@ -1,5 +1,19 @@
 # evailbox X website-card generation prompts
 
+## Variant 02 revision 4: regular-weight brand label
+
+Input: `evailbox-x-card-02-too-much-to-ask-v3-800x418.png`.
+
+Output: `evailbox-x-card-02-too-much-to-ask-v4-800x418.png`.
+
+Edited with built-in OpenAI image generation and exported at exactly 800 × 418 using Sharp with `fit: 'contain'`. Changes the evailbox label beneath the right icon to regular weight.
+
+```text
+Use case: precise-object-edit, text typography refinement.
+Edit the supplied evailbox landscape advertisement with exactly ONE tiny change: change the lowercase word "evailbox" directly beneath the central green envelope icon in the lower-right icon row from bold to REGULAR font weight, roughly weight 400. The label should have visibly lighter, slimmer strokes than in the input, retaining a clean sans-serif appearance. Keep the same dark forest-green color, lowercase spelling, approximate font size, baseline, centered alignment directly beneath its icon, and spacing. Do not use a bold or semibold font for this small label.
+Preserve EVERYTHING ELSE identically or as closely as possible: the huge bold question on the left, the bold "Nope." sticker lettering and pale-lime paper shape, the tagline "Your inbox. Your rules.", the Gmail/evailbox/Outlook icons, all positions, sizes, shadows, colors and warm ivory background. Do not thin any other text. Add nothing. Remove nothing. Keep the canvas in the exact 800:418 landscape proportion. Return the finished ad only, ideally rendered at 1600 x 836 before export.
+```
+
 ## Variant 02 revision 3: brand name beneath the right icon
 
 Input: `evailbox-x-card-02-too-much-to-ask-v2-800x418.png`.
