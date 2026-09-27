@@ -8,20 +8,24 @@ import {
   useState,
   type Ref,
 } from 'react';
-import { Send, RefreshCw } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Button } from './ui/button';
 import { useDemo, useTrustedUser } from './providers';
 import { useWorkspaceSelection } from './workspace-selection';
 import { api, RequestError } from '@/lib/api';
 import { workspacePath } from '@/lib/workspace-selection';
 import { readDemo } from '@/lib/demo';
-import { getDemoReplyDraft, saveDemoReplyDraft, sendDemoReplyDraft } from '@/lib/reply-demo';
+import {
+  beginDemoReplyDraft,
+  getDemoReplyDraft,
+  saveDemoReplyDraft,
+  sendDemoReplyDraft,
+} from '@/lib/reply-demo';
+import { replyDraftQuery } from '@/lib/email-preload';
+import { ReplyEditor, type ReplyEditorState } from './reply-editor';
 import type { ReplyDraftDTO, ReplyDraftResult } from '@/lib/mail-actions';
 import type { ReplyMode } from '@/lib/providers/actions';
 import type { Email } from '@/types';
-import styles from './reply-composer.module.css';
 export interface ReplyComposerHandle {
   save(): Promise<boolean>;
 }
@@ -29,11 +33,13 @@ export function ReplyComposer({
   email,
   initialMode = 'reply',
   onSent,
+  onSaved,
   ref,
 }: {
   email: Pick<Email, 'id' | 'accountId' | 'subject' | 'sender'>;
   initialMode?: ReplyMode;
   onSent?: () => void;
+  onSaved?: () => void;
   ref?: Ref<ReplyComposerHandle>;
 }) {
   const demo = useDemo(),
@@ -48,8 +54,15 @@ export function ReplyComposer({
     'loading',
   );
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [staleDraft, setStaleDraft] = useState(false);
+  const [busy, setBusy] = useState<ReplyEditorState['busy']>(null);
   const [contextBusy, setContextBusy] = useState(false);
+  const [recipients, setRecipients] = useState<Pick<ReplyDraftResult, 'context' | 'notice'>>({
+    context: null,
+    notice: null,
+  });
+  const contextRequest = useRef(0);
+  const loadRequest = useRef(0);
   const draftRef = useRef<ReplyDraftDTO | null>(null),
     bodyRef = useRef(''),
     modeRef = useRef<ReplyMode>(initialMode);
@@ -80,51 +93,110 @@ export function ReplyComposer({
     [email.id, email.accountId, email.subject, email.sender],
   );
   const base = `/api/emails/${encodeURIComponent(email.id)}`;
-  const updateDraft = useCallback((value: ReplyDraftDTO | null) => {
-    draftRef.current = value;
-    if (mounted.current) setDraft(value);
-  }, []);
-  const read = useCallback(
-    (requestedMode?: ReplyMode) =>
-      demo
-        ? Promise.resolve(
-            getDemoReplyDraft(workspace, message, demoFrom, requestedMode, demoProvider),
+  const userId = user?.id ?? '';
+  const updateDraft = useCallback(
+    (value: ReplyDraftDTO | null, previousId?: string) => {
+      draftRef.current = value;
+      if (mounted.current) setDraft(value);
+      if (!demo)
+        client.setQueryData(replyDraftQuery({ userId, workspace }, email.id).queryKey, (cached) => {
+          if (!cached) return undefined;
+          // Late send responses cannot replace a newer reply identity.
+          if (
+            cached.draft &&
+            value &&
+            cached.draft.id !== value.id &&
+            cached.draft.id !== previousId
           )
-        : api.get<ReplyDraftResult>(
-            workspacePath(
-              `${base}/draft${requestedMode ? `?mode=${requestedMode}` : ''}`,
-              workspace,
-            ),
-          ),
+            return cached;
+          return { ...cached, draft: value };
+        });
+      if (value?.status === 'accepted') {
+        const key = demo ? ['demo', workspace, 'drafts'] : ['private', userId, workspace, 'drafts'];
+        client.setQueryData<Array<{ id: string }>>(key, (rows) =>
+          rows?.filter((row) => row.id !== value.id),
+        );
+      }
+    },
+    [client, demo, email.id, userId, workspace],
+  );
+  const refreshDrafts = useCallback(() => {
+    void client.invalidateQueries({
+      queryKey: demo ? ['demo', workspace, 'drafts'] : ['private', userId, workspace, 'drafts'],
+    });
+  }, [client, demo, workspace, userId]);
+  const read = useCallback(
+    (force = false) => {
+      if (demo)
+        return Promise.resolve(
+          getDemoReplyDraft(workspace, message, demoFrom, undefined, demoProvider),
+        );
+      const options = replyDraftQuery({ userId, workspace }, email.id);
+      return client.fetchQuery({ ...options, ...(force ? { staleTime: 0 } : {}) });
+    },
+    [client, demo, workspace, userId, email.id, message, demoFrom, demoProvider],
+  );
+  const loadRecipients = useCallback(
+    async (requestedMode: ReplyMode) => {
+      const request = ++contextRequest.current;
+      setContextBusy(true);
+      setRecipients({ context: null, notice: null });
+      try {
+        const value = demo
+          ? getDemoReplyDraft(workspace, message, demoFrom, requestedMode, demoProvider)
+          : await api.get<Pick<ReplyDraftResult, 'context' | 'notice'>>(
+              workspacePath(`${base}/draft?context=1&mode=${requestedMode}`, workspace),
+            );
+        if (mounted.current && request === contextRequest.current) setRecipients(value);
+      } catch (error) {
+        if (mounted.current && request === contextRequest.current)
+          setRecipients({ context: null, notice: (error as Error).message });
+      } finally {
+        if (mounted.current && request === contextRequest.current) setContextBusy(false);
+      }
+    },
     [demo, workspace, message, demoFrom, demoProvider, base],
   );
-  const load = useCallback(async () => {
-    setSaveState('loading');
-    setError('');
-    try {
-      let value = await read();
-      const selectedMode = value.draft?.mode ?? initialMode;
-      if (selectedMode !== (value.draft?.mode ?? 'reply')) value = await read(selectedMode);
-      if (!mounted.current) return;
-      setResult(value);
-      updateDraft(value.draft);
-      setBody(value.draft?.body ?? '');
-      bodyRef.current = value.draft?.body ?? '';
-      setMode(selectedMode);
-      modeRef.current = selectedMode;
-      setSaveState('saved');
-    } catch (e) {
-      if (mounted.current) {
-        setError((e as Error).message);
-        setSaveState('error');
+  const load = useCallback(
+    async (force = false) => {
+      const request = ++loadRequest.current;
+      setSaveState('loading');
+      setError('');
+      try {
+        if (force && inflight.current) {
+          await inflight.current.catch(() => {});
+          if (!mounted.current || request !== loadRequest.current) return;
+          setSaveState('loading');
+        }
+        const value = await read(force);
+        if (!mounted.current || request !== loadRequest.current) return;
+        const selectedMode = value.draft?.mode ?? initialMode;
+        setResult(value);
+        setStaleDraft(false);
+        updateDraft(value.draft);
+        setBody(value.draft?.body ?? '');
+        bodyRef.current = value.draft?.body ?? '';
+        setMode(selectedMode);
+        modeRef.current = selectedMode;
+        setSaveState('saved');
+        if (!value.draft || value.draft.status === 'editing') void loadRecipients(selectedMode);
+      } catch (e) {
+        if (mounted.current && request === loadRequest.current) {
+          setError((e as Error).message);
+          setSaveState('error');
+        }
       }
-    }
-  }, [read, initialMode, updateDraft]);
+    },
+    [read, initialMode, updateDraft, loadRecipients],
+  );
   useEffect(() => {
     mounted.current = true;
     void load();
+    const requests = { load: loadRequest, context: contextRequest };
     return () => {
       mounted.current = false;
+      ++requests.load.current;
+      ++requests.context.current;
     };
   }, [load]);
   const save = useCallback(async (): Promise<ReplyDraftDTO | null> => {
@@ -132,7 +204,7 @@ export function ReplyComposer({
     const current = draftRef.current;
     if (current && current.status !== 'editing') return current;
     if (
-      (!current && !bodyRef.current) ||
+      (!current && !bodyRef.current.trim()) ||
       (current?.body === bodyRef.current && current.mode === modeRef.current)
     )
       return current;
@@ -143,12 +215,17 @@ export function ReplyComposer({
       setError('');
     }
     const request = demo
-      ? Promise.resolve(
+      ? Promise.resolve().then(() =>
           saveDemoReplyDraft(
             workspace,
             message,
             demoFrom,
-            { body: nextBody, mode: nextMode },
+            {
+              body: nextBody,
+              mode: nextMode,
+              revision: current?.revision ?? null,
+              ...(current ? { draftId: current.id } : {}),
+            },
             demoProvider,
           ),
         )
@@ -156,11 +233,13 @@ export function ReplyComposer({
           body: nextBody,
           mode: nextMode,
           revision: current?.revision ?? null,
+          ...(current ? { draftId: current.id } : {}),
         });
     inflight.current = request;
     try {
       const saved = await request;
       updateDraft(saved);
+      refreshDrafts();
       if (mounted.current)
         setSaveState(
           bodyRef.current === saved.body && modeRef.current === saved.mode ? 'saved' : 'unsaved',
@@ -175,7 +254,7 @@ export function ReplyComposer({
     } finally {
       if (inflight.current === request) inflight.current = null;
     }
-  }, [demo, workspace, message, demoFrom, demoProvider, base, updateDraft]);
+  }, [demo, workspace, message, demoFrom, demoProvider, base, updateDraft, refreshDrafts]);
   const flush = useCallback(async () => {
     try {
       await save();
@@ -194,11 +273,11 @@ export function ReplyComposer({
     () => ({
       save: async () => {
         // Freeze editing while a parent closes/archives so the last typed characters cannot be lost.
-        setBusy(true);
+        setBusy('save');
         try {
           return await flush();
         } finally {
-          if (mounted.current) setBusy(false);
+          if (mounted.current) setBusy(null);
         }
       },
     }),
@@ -221,218 +300,189 @@ export function ReplyComposer({
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [saveState]);
-  const changeMode = async (next: ReplyMode) => {
+  const changeMode = (next: ReplyMode) => {
     modeRef.current = next;
     setMode(next);
     setSaveState('unsaved');
-    setContextBusy(true);
+    void loadRecipients(next);
+  };
+  const saveAndClose = async () => {
+    if (busy || !result) return;
+    setBusy('save');
     try {
-      const value = await read(next);
-      if (mounted.current) setResult(value);
-    } catch (e) {
-      setError((e as Error).message);
-      setResult((value) => (value ? { ...value, context: null } : value));
+      if (!(await flush())) return;
+      refreshDrafts();
+      if (mounted.current) {
+        toast.success(demo ? 'Demo draft saved for this tab.' : 'Draft saved');
+        onSaved?.();
+      }
     } finally {
-      setContextBusy(false);
+      if (mounted.current) setBusy(null);
+    }
+  };
+  const newReply = async () => {
+    const previous = draftRef.current;
+    if (busy || previous?.status !== 'accepted') return;
+    setBusy('new');
+    setError('');
+    try {
+      const input = { draftId: previous.id, revision: previous.revision, mode: modeRef.current };
+      const next = demo
+        ? beginDemoReplyDraft(workspace, email.id, input)
+        : await api.post<ReplyDraftDTO>(workspacePath(`${base}/draft`, workspace), {
+            intent: 'new',
+            ...input,
+          });
+      updateDraft(next, previous.id);
+      refreshDrafts();
+      if (!mounted.current) return;
+      bodyRef.current = next.body;
+      setBody(next.body);
+      modeRef.current = next.mode;
+      setMode(next.mode);
+      setSaveState('saved');
+      void loadRecipients(next.mode);
+    } catch (error) {
+      if (mounted.current) setError((error as Error).message);
+    } finally {
+      if (mounted.current) setBusy(null);
     }
   };
   const send = async () => {
-    setBusy(true);
+    if (
+      busy ||
+      !result ||
+      contextBusy ||
+      !recipients.context ||
+      (draftRef.current?.status && draftRef.current.status !== 'editing')
+    )
+      return;
+    setBusy('send');
     setError('');
+    let attempted: ReplyDraftDTO | null = null;
     try {
       if (!(await flush())) return;
       const saved = draftRef.current;
       if (!saved) throw new Error('Write a reply before sending.');
+      attempted = saved;
+      updateDraft({ ...saved, status: 'sending' });
       const sent = demo
-        ? sendDemoReplyDraft(workspace, email.id)
+        ? sendDemoReplyDraft(workspace, email.id, { draftId: saved.id, revision: saved.revision })
         : await api.post<ReplyDraftDTO>(workspacePath(`${base}/reply`, workspace), {
             intent: 'send',
             draftId: saved.id,
             revision: saved.revision,
           });
       updateDraft(sent);
-      if (sent.status === 'accepted') {
-        toast.success(
-          demo ? 'Demo complete — no email sent.' : 'Your provider accepted the reply.',
-        );
+      if (sent.status === 'accepted' && mounted.current) {
+        toast.success(demo ? 'Demo complete — no email sent.' : 'Reply sent');
         onSent?.();
       }
-      await client.invalidateQueries({ queryKey: ['private', user?.id, workspace] });
+      refreshDrafts();
     } catch (e) {
-      setError((e as Error).message);
+      if (mounted.current) setError((e as Error).message);
       // A lost browser response cannot imply a failed send. Re-read before enabling any further action.
       if (!demo) {
         try {
-          const value = await read();
-          setResult(value);
+          const value = await read(true);
+          if (
+            attempted &&
+            (!value.draft ||
+              value.draft.id !== attempted.id ||
+              (value.draft.status === 'editing' &&
+                (value.draft.body !== attempted.body || value.draft.mode !== attempted.mode)))
+          ) {
+            if (mounted.current) {
+              draftRef.current = { ...attempted, status: 'unknown' };
+              setDraft(draftRef.current);
+              setStaleDraft(true);
+              setError('This conversation has a newer draft. Open the current draft to continue.');
+            }
+            return;
+          }
+          if (mounted.current) setResult(value);
           updateDraft(value.draft);
-          if (value.draft?.status === 'accepted') onSent?.();
+          if (value.draft?.status === 'accepted' && mounted.current) {
+            setError('');
+            onSent?.();
+          }
+          refreshDrafts();
         } catch {
           if (draftRef.current) updateDraft({ ...draftRef.current, status: 'unknown' });
         }
       }
-      if (e instanceof RequestError && e.code === 'RECONNECT_REQUIRED') setError(e.message);
+      if (mounted.current && e instanceof RequestError && e.code === 'RECONNECT_REQUIRED')
+        setError(e.message);
     } finally {
-      setBusy(false);
+      if (mounted.current) setBusy(null);
     }
   };
   const reconcile = async () => {
-    setBusy(true);
+    const expected = draftRef.current;
+    if (busy || !expected) return;
+    setBusy('reconcile');
     setError('');
     try {
       const reconciled = await api.post<ReplyDraftDTO>(workspacePath(`${base}/reply`, workspace), {
         intent: 'reconcile',
+        draftId: expected.id,
       });
+      if (
+        reconciled.id !== expected.id ||
+        (reconciled.status === 'editing' &&
+          (reconciled.body !== expected.body || reconciled.mode !== expected.mode))
+      ) {
+        if (mounted.current) {
+          setStaleDraft(true);
+          setError('This conversation has a newer draft. Open the current draft to continue.');
+        }
+        return;
+      }
       updateDraft(reconciled);
-      if (reconciled.status === 'accepted') onSent?.();
+      if (reconciled.status === 'accepted' && mounted.current) onSent?.();
+      refreshDrafts();
     } catch (e) {
-      setError((e as Error).message);
+      if (mounted.current) {
+        setError((e as Error).message);
+        if (e instanceof RequestError && ['DRAFT_CONFLICT', 'NOT_FOUND'].includes(e.code))
+          setStaleDraft(true);
+      }
     } finally {
-      setBusy(false);
+      if (mounted.current) setBusy(null);
     }
   };
-  const locked = !!draft && draft.status !== 'editing';
-  const context = result?.context;
   return (
-    <section className={styles.composer} aria-label="Reply composer">
-      <div className={styles.heading}>
-        <h3>{draft?.status === 'accepted' ? 'Reply accepted' : 'Your reply'}</h3>
-        <label>
-          <span className="sr-only">Reply recipients</span>
-          <select
-            value={mode}
-            disabled={busy || locked || contextBusy || saveState === 'loading'}
-            onChange={(e) => void changeMode(e.target.value as ReplyMode)}
-          >
-            <option value="reply">Reply</option>
-            <option value="reply-all">Reply all</option>
-          </select>
-        </label>
-      </div>
-      {result && (
-        <dl className={styles.recipients}>
-          <dt>From</dt>
-          <dd>
-            {result.account.email} · connected{' '}
-            {result.account.provider === 'GMAIL' ? 'Gmail' : 'Outlook'} account
-          </dd>
-          <dt>To</dt>
-          <dd>
-            {contextBusy
-              ? 'Loading recipients…'
-              : (context?.to.join(', ') ?? 'Recipients unavailable')}
-          </dd>
-          {!!context?.cc.length && (
-            <>
-              <dt>Cc</dt>
-              <dd>{context.cc.join(', ')}</dd>
-            </>
-          )}
-        </dl>
-      )}
-      {result?.notice && <p className={styles.notice}>{result.notice}</p>}
-      <label htmlFor={`reply-${email.id}`} className="sr-only">
-        Reply message
-      </label>
-      <textarea
-        id={`reply-${email.id}`}
-        className={styles.body}
-        value={body}
-        maxLength={16000}
-        placeholder="Write your reply…"
-        disabled={busy || locked || saveState === 'loading' || !result}
-        onChange={(e) => {
-          bodyRef.current = e.target.value;
-          setBody(e.target.value);
+    <ReplyEditor
+      state={{
+        emailId: email.id,
+        body,
+        mode,
+        draft,
+        accountEmail: result?.account.email ?? '',
+        context: recipients.context,
+        contextBusy,
+        loaded: !!result,
+        saveState,
+        busy,
+        error,
+        notice: recipients.notice,
+        demo,
+        staleDraft,
+      }}
+      actions={{
+        changeBody: (value) => {
+          bodyRef.current = value;
+          setBody(value);
           setSaveState('unsaved');
-        }}
-      />
-      {error && (
-        <p role="alert" className={`${styles.notice} ${styles.error}`}>
-          {error} <a href="/accounts">Manage or reconnect account</a>
-        </p>
-      )}
-      {draft?.lastError && (
-        <p role="status" className={styles.notice}>
-          {draft.lastError}
-        </p>
-      )}
-      {draft?.status === 'accepted' && (
-        <p role="status" className={styles.notice}>
-          {demo
-            ? 'Demo complete. No email was sent.'
-            : 'Your email provider accepted this reply for sending. Recipient delivery is not confirmed.'}
-        </p>
-      )}
-      <div className={styles.footer}>
-        <span className={styles.status} role="status">
-          {saveState === 'loading'
-            ? 'Opening draft…'
-            : saveState === 'saving'
-              ? 'Saving draft…'
-              : saveState === 'unsaved'
-                ? 'Unsaved changes'
-                : saveState === 'error'
-                  ? 'Draft could not be saved'
-                  : demo
-                    ? 'Demo draft · this tab only'
-                    : draft
-                      ? 'Draft saved'
-                      : 'Draft saves as you type'}
-        </span>
-        <div className={styles.buttons}>
-          {saveState === 'error' && (
-            <>
-              <Button size="sm" variant="outline" disabled={busy} onClick={() => void flush()}>
-                Retry save
-              </Button>
-              <Button size="sm" variant="ghost" disabled={busy} onClick={() => void load()}>
-                Reopen saved draft
-              </Button>
-            </>
-          )}
-          {result && !context && !locked && (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={contextBusy}
-              onClick={() => void changeMode(mode)}
-            >
-              <RefreshCw size={14} />
-              Load recipients
-            </Button>
-          )}
-          {locked && draft.status !== 'accepted' && !demo ? (
-            <Button size="sm" variant="outline" disabled={busy} onClick={() => void reconcile()}>
-              <RefreshCw size={14} />
-              Check send status
-            </Button>
-          ) : (
-            <Button
-              size="sm"
-              disabled={
-                busy ||
-                locked ||
-                contextBusy ||
-                !context ||
-                !body.trim() ||
-                saveState === 'loading' ||
-                saveState === 'error'
-              }
-              onClick={() => void send()}
-            >
-              <Send size={14} />
-              {busy ? 'Sending…' : demo ? 'Simulate send' : 'Send reply'}
-            </Button>
-          )}
-        </div>
-      </div>
-      {!locked && (
-        <p className={styles.notice}>
-          Plain text reply. Attachments are not supported yet.
-          {demo ? ' No email will be sent.' : ''}
-        </p>
-      )}
-    </section>
+        },
+        changeMode,
+        save: () => void saveAndClose(),
+        send: () => void send(),
+        newReply: () => void newReply(),
+        reconcile: () => void reconcile(),
+        reload: () => void load(true),
+        loadRecipients: () => void loadRecipients(modeRef.current),
+      }}
+    />
   );
 }

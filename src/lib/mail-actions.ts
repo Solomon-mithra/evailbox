@@ -23,11 +23,23 @@ export const saveDraftSchema = z
     body: z.string().max(16000),
     mode: z.enum(['reply', 'reply-all']),
     revision: z.number().int().nonnegative().nullable(),
+    draftId: z.string().min(1).max(100).optional(),
   })
-  .strict();
+  .strict()
+  .refine((input) => input.revision !== null || input.draftId === undefined, {
+    message: 'A new draft cannot reuse a previous draft identity.',
+    path: ['draftId'],
+  });
 export const sendDraftSchema = z
   .object({ draftId: z.string().min(1).max(100), revision: z.number().int().nonnegative() })
   .strict();
+const beginDraftSchema = sendDraftSchema.extend({
+  mode: z.enum(['reply', 'reply-all']).default('reply'),
+});
+export interface ReplyContextResult {
+  context: ReplyContext | null;
+  notice: string | null;
+}
 export interface ReplyDraftDTO {
   id: string;
   body: string;
@@ -90,37 +102,104 @@ function actionError(error: unknown): ApiError {
     'Your email provider could not finish this request. Try again shortly.',
   );
 }
+async function loadReplyContext(
+  userId: string,
+  workspace: WorkspaceId,
+  email: Awaited<ReturnType<typeof ownedEmail>>,
+  mode: ReplyMode,
+): Promise<ReplyContextResult> {
+  try {
+    const context = await withAccountCredentials(
+      userId,
+      workspace,
+      email.accountId,
+      (account, token) =>
+        fetchReplyContext(account.provider, token, email.providerMessageId, account.email, mode),
+    );
+    return { context, notice: null };
+  } catch (error) {
+    return { context: null, notice: actionError(error).message };
+  }
+}
+export async function getReplyContext(
+  userId: string,
+  workspace: WorkspaceId,
+  emailId: string,
+  mode: ReplyMode = 'reply',
+): Promise<ReplyContextResult> {
+  return loadReplyContext(userId, workspace, await ownedEmail(userId, workspace, emailId), mode);
+}
 export async function getReplyDraft(
   userId: string,
   workspace: WorkspaceId,
   emailId: string,
   mode?: ReplyMode,
+  includeContext = true,
 ): Promise<ReplyDraftResult> {
   const email = await ownedEmail(userId, workspace, emailId);
   const draft = await db.replyDraft.findFirst({
     where: scope(userId, workspace, emailId, email.accountId),
   });
-  let context: ReplyContext | null = null,
-    notice: string | null = null;
-  try {
-    context = await withAccountCredentials(userId, workspace, email.accountId, (account, token) =>
-      fetchReplyContext(
-        account.provider,
-        token,
-        email.providerMessageId,
-        account.email,
+  const context = includeContext
+    ? await loadReplyContext(
+        userId,
+        workspace,
+        email,
         mode ?? (draft?.mode as ReplyMode) ?? 'reply',
-      ),
-    );
-  } catch (error) {
-    notice = actionError(error).message;
-  }
+      )
+    : { context: null, notice: null };
   return {
     draft: draft ? dto(draft) : null,
-    context,
+    ...context,
     account: { id: email.accountId, email: email.account.email, provider: email.account.provider },
-    notice,
   };
+}
+/** An accepted reply can be replaced only by an explicit request for its exact identity/revision. */
+export async function beginReplyDraft(
+  userId: string,
+  workspace: WorkspaceId,
+  emailId: string,
+  value: unknown,
+): Promise<ReplyDraftDTO> {
+  const input = beginDraftSchema.parse(value);
+  const email = await ownedEmail(userId, workspace, emailId);
+  const where = scope(userId, workspace, emailId, email.accountId);
+  const id = randomUUID();
+  // The one-draft-per-email row is reused atomically, but send identity and revision
+  // never repeat. Old saves, send retries and provider callbacks cannot claim it.
+  const result = await db.replyDraft.updateMany({
+    where: { ...where, id: input.draftId, revision: input.revision, status: 'accepted' },
+    data: {
+      id,
+      rfcMessageId: `<${randomUUID()}@evailbox.local>`,
+      body: '',
+      mode: input.mode,
+      revision: { increment: 1 },
+      status: 'editing',
+      providerDraftId: null,
+      providerMessageId: null,
+      acceptedAt: null,
+      leaseId: null,
+      leaseUntil: null,
+      lastError: null,
+    },
+  });
+  if (!result.count)
+    throw new ApiError(
+      409,
+      'DRAFT_CONFLICT',
+      'This reply changed or its send is not confirmed. Reopen it before starting another reply.',
+    );
+  const draft = await db.replyDraft.findFirst({
+    where: { ...where, id, revision: input.revision + 1 },
+  });
+  if (!draft)
+    throw new ApiError(
+      409,
+      'DRAFT_CONFLICT',
+      'This new reply changed in another tab. Reopen it before editing.',
+    );
+  return dto(draft);
 }
 export async function saveReplyDraft(
   userId: string,
@@ -142,8 +221,13 @@ export async function saveReplyDraft(
     });
     return dto(draft);
   }
+  // Legacy callers can omit draftId; resolve it before the write so a concurrent
+  // acceptance/new-reply transition cannot make the reread return another draft.
+  const draftId = input.draftId ?? (await db.replyDraft.findFirst({ where }))?.id;
+  if (!draftId) throw new ApiError(404, 'NOT_FOUND', 'Draft not found.');
+  const draftWhere = { ...where, id: draftId };
   const result = await db.replyDraft.updateMany({
-    where: { ...where, status: 'editing', revision: input.revision },
+    where: { ...draftWhere, status: 'editing', revision: input.revision },
     data: { body: input.body, mode: input.mode, revision: { increment: 1 }, lastError: null },
   });
   if (!result.count)
@@ -152,8 +236,15 @@ export async function saveReplyDraft(
       'DRAFT_CONFLICT',
       'This draft changed in another tab or is being sent. Reopen it before editing.',
     );
-  const draft = await db.replyDraft.findFirst({ where });
-  if (!draft) throw new ApiError(404, 'NOT_FOUND', 'Draft not found.');
+  const draft = await db.replyDraft.findFirst({
+    where: { ...draftWhere, revision: input.revision + 1 },
+  });
+  if (!draft)
+    throw new ApiError(
+      409,
+      'DRAFT_CONFLICT',
+      'This draft changed in another tab after saving. Reopen it before editing.',
+    );
   return dto(draft);
 }
 export async function sendReplyDraft(
@@ -270,11 +361,16 @@ export async function reconcileReplyDraft(
   userId: string,
   workspace: WorkspaceId,
   emailId: string,
+  draftId?: string,
 ): Promise<ReplyDraftDTO> {
   const email = await ownedEmail(userId, workspace, emailId),
-    where = scope(userId, workspace, emailId, email.accountId);
+    where = {
+      ...scope(userId, workspace, emailId, email.accountId),
+      ...(draftId ? { id: draftId } : {}),
+    };
   let draft = await db.replyDraft.findFirst({ where });
   if (!draft) throw new ApiError(404, 'NOT_FOUND', 'Draft not found.');
+  const draftWhere = { ...where, id: draft.id };
   if (draft.status === 'accepted' || draft.status === 'editing') return dto(draft);
   if (draft.leaseUntil && draft.leaseUntil.getTime() > Date.now())
     throw new ApiError(
@@ -291,7 +387,7 @@ export async function reconcileReplyDraft(
     throw actionError(error);
   }
   await db.replyDraft.updateMany({
-    where: { ...where, id: draft.id, status: { in: ['preparing', 'sending', 'unknown'] } },
+    where: { ...draftWhere, status: { in: ['preparing', 'sending', 'unknown'] } },
     data:
       result.status === 'accepted'
         ? {
@@ -310,7 +406,7 @@ export async function reconcileReplyDraft(
               'No sent copy is confirmed yet. Check your provider’s Sent and Drafts folders, then check status again. Sending remains disabled to prevent duplicates.',
           },
   });
-  draft = await db.replyDraft.findFirst({ where });
+  draft = await db.replyDraft.findFirst({ where: draftWhere });
   if (!draft) throw new ApiError(404, 'NOT_FOUND', 'Draft not found.');
   return dto(draft);
 }
@@ -337,7 +433,13 @@ export async function changeMailboxMessage(
 /** Safe summary listing: never return draft bodies to persistable inbox queries. */
 export async function listReplyDrafts(userId: string, workspace: WorkspaceId) {
   const drafts = await db.replyDraft.findMany({
-    where: { userId, workspace, account: { userId, workspace }, email: { userId, workspace } },
+    where: {
+      userId,
+      workspace,
+      account: { userId, workspace },
+      email: { userId, workspace },
+      status: { not: 'accepted' },
+    },
     orderBy: { updatedAt: 'desc' },
     take: 100,
     select: {

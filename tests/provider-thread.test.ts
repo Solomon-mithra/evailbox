@@ -82,6 +82,52 @@ describe('provider conversation bodies', () => {
     });
   });
 
+  it('loads attachment-backed replies three at a time instead of waiting on each body serially', async () => {
+    vi.useFakeTimers();
+    const current = gmail('current', 1000, 'Selected body');
+    const attachments = Array.from({ length: 6 }, (_, index) => ({
+      ...gmail(`reply-${index}`, 2000 + index, ''),
+      payload: { mimeType: 'text/plain', body: { attachmentId: `body-${index}`, size: 50 } },
+    }));
+    let active = 0;
+    let peak = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/threads/')) return response({ messages: [current, ...attachments] });
+        if (!url.includes('/attachments/')) return response(current);
+        active++;
+        peak = Math.max(peak, active);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        active--;
+        return response({ data: encoded('Loaded reply') });
+      }),
+    );
+    const started = Date.now();
+    const loading = threadProvider.fetchMessageThread('GMAIL', 'token', 'current');
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(active).toBe(3);
+      await vi.advanceTimersByTimeAsync(200);
+      const result = await loading;
+      expect(Date.now() - started).toBe(200);
+      expect(peak).toBe(3);
+      expect(result.partial).toBe(false);
+      expect(result.messages.map((message) => message.id)).toEqual([
+        'current',
+        ...attachments.map((message) => message.id),
+      ]);
+      expect(result.messages[0].content.content).toBe('Selected body');
+      expect(
+        result.messages.slice(1).every((message) => message.content.content === 'Loaded reply'),
+      ).toBe(true);
+    } finally {
+      await vi.runAllTimersAsync();
+      await loading;
+      vi.useRealTimers();
+    }
+  });
+
   it('caps large threads at 100 while preserving the selected message even when it is oldest', async () => {
     const messages = Array.from({ length: 105 }, (_, i) => gmail(`m${i}`, i + 1, `Body ${i}`));
     vi.stubGlobal(

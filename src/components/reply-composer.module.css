@@ -1,6 +1,6 @@
 .composer {
   margin-top: 1.25rem;
-  padding: 1.2rem;
+  padding: 1.25rem;
   border: 1px solid var(--border, #dedbd5);
   border-radius: 14px;
   background: var(--surface, #fff);
@@ -22,6 +22,7 @@
   background: transparent;
   padding: 0.35rem 0.5rem;
   font: inherit;
+  min-height: 44px;
 }
 .recipients {
   display: grid;
@@ -49,6 +50,7 @@
   color: inherit;
   font: inherit;
   line-height: 1.6;
+  font-size: 1rem;
 }
 .body:focus {
   outline: 2px solid var(--accent, #54785a);
@@ -61,6 +63,48 @@
   gap: 0.7rem;
   margin-top: 0.75rem;
   flex-wrap: wrap;
+}
+.sent {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.sent > svg {
+  color: var(--forest);
+  flex-shrink: 0;
+}
+.sent > div {
+  flex: 1;
+}
+.sent h3 {
+  font-size: 1rem;
+  margin: 0 0 4px;
+}
+.sent p {
+  font-size: 0.875rem;
+  color: var(--muted);
+  margin: 0;
+}
+.sent button {
+  flex-shrink: 0;
+}
+@media (max-width: 540px) {
+  .composer {
+    padding: 1rem;
+  }
+  .sent {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  .sent > div {
+    flex-basis: calc(100% - 40px);
+  }
+  .sent button {
+    margin-left: 32px;
+  }
+  .footer {
+    align-items: flex-start;
+  }
 }
 .status {
   color: var(--muted, #706d67);

@@ -2287,6 +2287,10 @@ input[type='search']::-webkit-search-cancel-button {
   align-items: center;
   gap: 4px;
 }
+.email-handled-action {
+  margin: 0 4px;
+  min-height: 44px;
+}
 .email-reader-mail-actions .icon-button,
 .email-reader-mail-actions .button-icon {
   width: 44px;
@@ -2413,6 +2417,14 @@ input[type='search']::-webkit-search-cancel-button {
   .email-reader-actions {
     padding: 8px 12px;
     gap: 4px;
+  }
+  .email-reader-back {
+    width: 44px;
+    min-width: 44px;
+    padding: 0;
+  }
+  .email-reader-back span {
+    display: none;
   }
   .email-reader-content {
     padding: 24px 20px 40px;

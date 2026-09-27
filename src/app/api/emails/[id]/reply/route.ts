@@ -22,12 +22,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
             revision: z.number().int().nonnegative(),
           })
           .strict(),
-        z.object({ intent: z.literal('reconcile') }).strict(),
+        z.object({ intent: z.literal('reconcile'), draftId: idSchema.optional() }).strict(),
       ])
       .parse(await jsonBody(request));
     return ok(
       input.intent === 'reconcile'
-        ? await reconcileReplyDraft(user.id, workspace, id)
+        ? await reconcileReplyDraft(user.id, workspace, id, input.draftId)
         : await sendReplyDraft(user.id, workspace, id, {
             draftId: input.draftId,
             revision: input.revision,

@@ -3,8 +3,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ExternalLink,
-  Check,
-  Undo2,
+  ListChecks,
+  ListTodo,
   Sparkles,
   Reply,
   ReplyAll,
@@ -17,9 +17,15 @@ import { Button } from './ui/button';
 import type { Email } from '@/types';
 import { useAction } from '@/hooks/useFetch';
 import { toast } from 'sonner';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDemo, usePrivateCache } from './providers';
-import { emailContentQuery, emailDetailQuery, emailThreadQuery } from '@/lib/email-preload';
+import {
+  emailContentQuery,
+  emailDetailQuery,
+  emailThreadQuery,
+  emailThreadNeedsRefresh,
+  preloadReplyDraft,
+} from '@/lib/email-preload';
 import { ReplyComposer, type ReplyComposerHandle } from './reply-composer';
 import { EmailMessageFrame } from './email-message-frame';
 import { useReaderNavigation } from './reader-navigation';
@@ -98,6 +104,7 @@ export function EmailDetail({
 }) {
   const { workspace } = useWorkspaceSelection();
   const { register } = useReaderNavigation();
+  const client = useQueryClient();
   const mutation = useAction(),
     demo = useDemo();
   const { user, ready } = usePrivateCache();
@@ -112,8 +119,13 @@ export function EmailDetail({
   });
   const refreshThread = thread.refetch;
   useEffect(() => {
-    if (user?.id && ready && !demo) void refreshThread({ cancelRefetch: false });
-  }, [refreshThread, user?.id, ready, demo, workspace, selected.id, images]);
+    if (!user?.id || !ready || demo) return;
+    const scope = { userId: user.id, workspace };
+    const state = client.getQueryState(emailThreadQuery(scope, selected.id, images).queryKey);
+    if (emailThreadNeedsRefresh(state?.data, state?.dataUpdatedAt ?? 0))
+      void refreshThread({ cancelRefetch: false });
+    void preloadReplyDraft(client, scope, selected.id);
+  }, [client, refreshThread, user?.id, ready, demo, workspace, selected.id, images]);
   const source = detail.data ?? selected;
   const [readState, setReadState] = useState<{ id: string; isRead: boolean } | null>(null);
   const email = readState?.id === source.id ? { ...source, isRead: readState.isRead } : source;
@@ -183,6 +195,12 @@ export function EmailDetail({
       ref={composer}
       email={email}
       initialMode={reply}
+      onSaved={() => {
+        setReply(null);
+        requestAnimationFrame(() =>
+          document.querySelector<HTMLButtonElement>('.email-reply-actions button')?.focus(),
+        );
+      }}
       onSent={() => {
         if (!demo) void refreshThread();
       }}
@@ -210,9 +228,14 @@ export function EmailDetail({
   return (
     <section className="email-reader" aria-labelledby="email-reader-title">
       <div className="email-reader-actions">
-        <Button variant="ghost" aria-label={backLabel} onClick={() => void close()}>
+        <Button
+          className="email-reader-back"
+          variant="ghost"
+          aria-label={backLabel}
+          onClick={() => void close()}
+        >
           <ArrowLeft size={18} />
-          Back
+          <span>Back</span>
         </Button>
         <div className="email-reader-mail-actions">
           <Button
@@ -226,24 +249,19 @@ export function EmailDetail({
             <Archive size={18} />
           </Button>
           <Button
-            variant="ghost"
-            size="icon"
-            aria-label={email.isRead ? 'Mark unread' : 'Mark read'}
-            title={email.isRead ? 'Mark unread' : 'Mark read'}
-            disabled={mutation.isPending}
-            onClick={() => void changeMessage(email.isRead ? 'unread' : 'read')}
-          >
-            <Mail size={18} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label={email.handled ? 'Mark unhandled' : 'Mark as handled'}
-            title={email.handled ? 'Mark unhandled' : 'Mark as handled'}
+            variant="outline"
+            className="email-handled-action"
+            aria-label={email.handled ? 'Reopen email' : 'Mark handled'}
+            title={
+              email.handled
+                ? 'Mark this email as needing attention again'
+                : 'Mark this email as handled'
+            }
             disabled={mutation.isPending}
             onClick={() => void markHandled()}
           >
-            {email.handled ? <Undo2 size={18} /> : <Check size={18} />}
+            {email.handled ? <ListTodo size={18} /> : <ListChecks size={18} />}
+            {email.handled ? 'Reopen' : 'Mark handled'}
           </Button>
           <DropdownMenu.Root>
             <DropdownMenu.Trigger className="icon-button" aria-label="More email actions">
@@ -251,6 +269,13 @@ export function EmailDetail({
             </DropdownMenu.Trigger>
             <DropdownMenu.Portal>
               <DropdownMenu.Content className="dropdown-content" align="end">
+                <DropdownMenu.Item
+                  disabled={mutation.isPending}
+                  onSelect={() => void changeMessage(email.isRead ? 'unread' : 'read')}
+                >
+                  <Mail size={16} />
+                  {email.isRead ? 'Mark unread' : 'Mark read'}
+                </DropdownMenu.Item>
                 <DropdownMenu.Item asChild>
                   <a href={email.webUrl} target="_blank" rel="noreferrer">
                     <ExternalLink size={16} />

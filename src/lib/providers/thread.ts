@@ -247,33 +247,46 @@ export async function fetchMessageThread(
   const messages = new Map<string, ProviderThreadMessage>();
   // Reserve body budget for the selected email, even in a very long conversation.
   const bodyOrder = [...candidates].sort((a, b) => Number(b.current) - Number(a.current));
-  for (const candidate of bodyOrder) {
-    let content: MessageContent = {
-      format: 'text',
-      content: candidate.snippet || 'No preview available.',
-    };
-    let fallback = false;
-    try {
-      if (bodyBytes >= maxBodyBytes) throw new Error('Conversation body limit');
-      const body = await candidate.body();
-      const bytes = Buffer.byteLength(body.content, 'utf8');
-      if (bytes > 2_000_000 || bodyBytes + bytes > maxBodyBytes)
-        throw new Error('Conversation body limit');
-      content = body;
-      bodyBytes += bytes;
-    } catch {
-      fallback = true;
-      partial = true;
+  for (let offset = 0; offset < bodyOrder.length;) {
+    // Reserve the selected body's budget first. Attachment-backed replies then
+    // load in small batches so provider latency does not accumulate per message.
+    const size = offset === 0 && bodyOrder[0].current ? 1 : 3;
+    const batch = bodyOrder.slice(offset, offset + size);
+    offset += batch.length;
+    const bodies = await Promise.allSettled(
+      batch.map(async (candidate) => {
+        if (bodyBytes >= maxBodyBytes) throw new Error('Conversation body limit');
+        return candidate.body();
+      }),
+    );
+    // Apply results in message order for a deterministic byte budget, regardless
+    // of network completion order. An unavailable body never drops its replies.
+    for (const [index, candidate] of batch.entries()) {
+      let content: MessageContent = {
+        format: 'text',
+        content: candidate.snippet || 'No preview available.',
+      };
+      let fallback = true;
+      const result = bodies[index];
+      if (result.status === 'fulfilled') {
+        const bytes = Buffer.byteLength(result.value.content, 'utf8');
+        if (bytes <= 2_000_000 && bodyBytes + bytes <= maxBodyBytes) {
+          content = result.value;
+          bodyBytes += bytes;
+          fallback = false;
+        }
+      }
+      if (fallback) partial = true;
+      messages.set(candidate.id, {
+        id: candidate.id,
+        sender: candidate.sender,
+        senderName: candidate.senderName,
+        receivedAt: candidate.receivedAt,
+        current: candidate.current,
+        content,
+        fallback,
+      });
     }
-    messages.set(candidate.id, {
-      id: candidate.id,
-      sender: candidate.sender,
-      senderName: candidate.senderName,
-      receivedAt: candidate.receivedAt,
-      current: candidate.current,
-      content,
-      fallback,
-    });
   }
   return { messages: candidates.map((candidate) => messages.get(candidate.id)!), partial };
 }

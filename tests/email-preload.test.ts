@@ -4,13 +4,22 @@ import {
   createEmailIntent,
   emailContentQuery,
   emailThreadQuery,
+  emailThreadNeedsRefresh,
   preloadEmail,
+  preloadReplyDraft,
+  replyDraftQuery,
 } from '@/lib/email-preload';
 import { cacheBuster, sanitizeCache } from '@/lib/query-cache';
 
 const scope = { userId: 'alice', workspace: 'PERSONAL' as const };
 let client: QueryClient;
 const html = '<!doctype html><p>Full message</p>';
+const replyDraft = {
+  draft: null,
+  account: { id: 'account', email: 'alice@example.com', provider: 'GMAIL' },
+  context: null,
+  notice: null,
+};
 beforeEach(() => {
   vi.useFakeTimers();
   client = new QueryClient();
@@ -153,6 +162,87 @@ it('keeps conversations private and stable until an explicit refresh', async () 
   } finally {
     unsubscribe();
   }
+});
+
+it('reuses complete conversations for thirty seconds while retrying missing or partial threads', () => {
+  const updatedAt = Date.now();
+  const complete = { messages: [], partial: false };
+  expect(emailThreadNeedsRefresh(undefined, 0)).toBe(true);
+  expect(emailThreadNeedsRefresh({ ...complete, partial: true }, updatedAt)).toBe(true);
+  expect(emailThreadNeedsRefresh(complete, updatedAt, updatedAt + 29_999)).toBe(false);
+  expect(emailThreadNeedsRefresh(complete, updatedAt, updatedAt + 30_000)).toBe(true);
+});
+
+it('shares a pending local draft preload with the composer and refreshes after fifteen seconds', async () => {
+  let finish!: (response: Response) => void;
+  vi.mocked(fetch)
+    .mockImplementation(async () => Response.json({ data: replyDraft }))
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+  const preload = preloadReplyDraft(client, scope, 'mail');
+  const opened = client.fetchQuery(replyDraftQuery(scope, 'mail'));
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(fetch).toHaveBeenCalledWith(
+    '/api/emails/mail/draft?context=0&workspace=PERSONAL',
+    expect.objectContaining({ credentials: 'same-origin', signal: expect.any(AbortSignal) }),
+  );
+  finish(Response.json({ data: replyDraft }));
+  await preload;
+  expect(await opened).toEqual(replyDraft);
+  await preloadReplyDraft(client, scope, 'mail');
+  expect(fetch).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(15_001);
+  await client.fetchQuery(replyDraftQuery(scope, 'mail'));
+  expect(fetch).toHaveBeenCalledTimes(2);
+});
+
+it('keeps at most three speculative local drafts in private memory for two minutes', async () => {
+  vi.mocked(fetch).mockImplementation(async () => Response.json({ data: replyDraft }));
+  for (const id of ['a', 'b', 'c', 'd']) {
+    await preloadReplyDraft(client, scope, id);
+    await vi.advanceTimersByTimeAsync(1);
+  }
+  const drafts = () =>
+    client
+      .getQueryCache()
+      .findAll()
+      .filter((query) => query.queryKey[3] === 'reply-draft');
+  expect(drafts()).toHaveLength(3);
+  expect(client.getQueryData(replyDraftQuery(scope, 'a').queryKey)).toBeUndefined();
+  expect(
+    client.getQueryData(replyDraftQuery({ ...scope, userId: 'bob' }, 'd').queryKey),
+  ).toBeUndefined();
+  expect(
+    client.getQueryData(replyDraftQuery({ ...scope, workspace: 'WORK' }, 'd').queryKey),
+  ).toBeUndefined();
+  const saved = sanitizeCache(
+    { timestamp: Date.now(), buster: cacheBuster(scope), clientState: dehydrate(client) },
+    scope,
+  );
+  expect(saved?.clientState.queries).toEqual([]);
+  await vi.advanceTimersByTimeAsync(120_001);
+  expect(drafts()).toHaveLength(0);
+});
+
+it('aborts local draft preloads when private queries are cleared', async () => {
+  let finish!: (response: Response) => void;
+  let signal!: AbortSignal;
+  vi.mocked(fetch).mockImplementationOnce((_url, options) => {
+    signal = options!.signal!;
+    return new Promise((resolve) => {
+      finish = resolve;
+    });
+  });
+  const preload = preloadReplyDraft(client, scope, 'mail');
+  client.removeQueries({ queryKey: ['private', scope.userId] });
+  expect(signal.aborted).toBe(true);
+  finish(Response.json({ data: replyDraft }));
+  await preload;
+  expect(client.getQueryData(replyDraftQuery(scope, 'mail').queryKey)).toBeUndefined();
 });
 
 it('aborts a removed private request without restoring cached content afterward', async () => {
