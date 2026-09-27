@@ -803,63 +803,51 @@ h1 {
 .email-handled .email-subject {
   color: var(--muted);
 }
-.tag-groups {
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: #fff;
+.inbox-tag-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
-.tag-group {
-  border-bottom: 1px solid var(--line);
+.inbox-tag-pills li {
+  min-width: 0;
+  max-width: 100%;
 }
-.tag-group:last-child {
-  border-bottom: 0;
-}
-.tag-group summary {
+.inbox-tag-pill {
   display: flex;
   align-items: center;
-  cursor: pointer;
-  list-style: none;
-  gap: 16px;
-  padding: 15px 20px;
-  min-height: 64px;
-}
-.tag-group summary::-webkit-details-marker {
-  display: none;
-}
-.tag-group-description {
-  flex: 1;
+  gap: 10px;
+  min-height: 48px;
+  padding: 9px 12px 9px 16px;
+  border: 1px solid transparent;
+  border-radius: 999px;
   font-size: 0.875rem;
-  color: var(--muted);
+  font-weight: 500;
 }
-.tag-group-count {
+.inbox-tag-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.inbox-tag-count {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  min-width: 28px;
+  min-height: 28px;
   margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #ffffffa6;
   font-size: 0.75rem;
-  color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+.inbox-tag-pill:active {
+  border-color: currentColor;
 }
 .expand-icon {
   transition: transform 0.15s;
-  color: var(--muted);
-}
-.tag-group[open] .expand-icon {
-  transform: rotate(180deg);
-}
-.tag-group-content {
-  border-top: 1px solid var(--line);
-}
-.tag-detail-link {
-  display: flex;
-  gap: 7px;
-  align-items: center;
-  padding: 12px 20px;
-  background: var(--surface);
-  font-size: 0.875rem;
-  color: var(--muted);
-}
-.inline-empty {
-  font-size: 0.875rem;
-  padding: 20px;
   color: var(--muted);
 }
 .text-link {
@@ -2134,8 +2122,8 @@ h1 {
   .email-row:hover .row-arrow {
     opacity: 1;
   }
-  .tag-group summary:hover {
-    background: var(--surface);
+  .inbox-tag-pill:hover {
+    border-color: currentColor;
   }
   .text-link:hover {
     color: var(--ink);
@@ -2235,13 +2223,6 @@ input[type='search']::-webkit-search-cancel-button {
 }
 .email-row:active {
   background: var(--surface);
-}
-.tag-group summary:focus-visible {
-  outline-offset: -4px;
-  border-radius: 8px;
-}
-.tag-group summary .tag-badge {
-  flex-shrink: 0;
 }
 .decision-trace summary {
   display: flex;
@@ -2401,11 +2382,6 @@ input[type='search']::-webkit-search-cancel-button {
   }
   .search-box {
     max-width: none;
-  }
-  .tag-group-description {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
   .account-status {
     display: none;
@@ -2585,16 +2561,6 @@ input[type='search']::-webkit-search-cancel-button {
   .email-compact .sender-avatar {
     width: 30px;
     height: 30px;
-  }
-  .tag-group summary {
-    gap: 10px;
-    padding: 14px;
-  }
-  .tag-group-description {
-    display: none;
-  }
-  .tag-group-count {
-    margin-left: auto;
   }
   .tag-card-grid {
     grid-template-columns: 1fr;

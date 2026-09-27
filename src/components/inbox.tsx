@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react';
 import {
   Search,
   RefreshCw,
-  ChevronDown,
   ArrowUpRight,
   X,
   CheckCheck,
@@ -411,20 +410,19 @@ export function InboxView() {
                         <ArrowUpRight size={14} />
                       </Link>
                     </div>
-                    <div className="tag-groups">
-                      {data.tags.length ? (
-                        data.tags.map((t) => (
-                          <TagGroup
-                            key={t.id}
-                            tag={t}
-                            count={data.tagCounts?.[t.id]}
-                            emails={emails.filter((e) =>
-                              e.classifications.some((c) => c.matched && c.tagId === t.id),
-                            )}
-                            onOpen={setSelected}
-                          />
-                        ))
-                      ) : (
+                    {data.tags.length ? (
+                      <ul className="inbox-tag-pills" aria-label="Browse emails by tag">
+                        {data.tags.map((t) => (
+                          <li key={t.id}>
+                            <TagPill
+                              tag={t}
+                              count={data.tagCounts ? (data.tagCounts[t.id] ?? 0) : undefined}
+                            />
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <div className="email-list">
                         <EmptyState
                           title="Make this inbox yours"
                           message="Create a tag and tell evailbox what to look for."
@@ -434,8 +432,8 @@ export function InboxView() {
                             </Button>
                           }
                         />
-                      )}
-                    </div>
+                      </div>
+                    )}
                   </section>
                   <section className="inbox-section">
                     <div className="section-heading">
@@ -499,36 +497,17 @@ export function InboxView() {
     </>
   );
 }
-function TagGroup({
-  tag,
-  emails,
-  onOpen,
-  count,
-}: {
-  tag: Tag;
-  emails: Email[];
-  count?: number;
-  onOpen: (e: Email) => void;
-}) {
+function TagPill({ tag, count }: { tag: Tag; count?: number }) {
+  const formattedCount = count?.toLocaleString('en-US');
   return (
-    <details className="tag-group">
-      <summary>
-        <TagBadge tag={tag} />
-        <span className="tag-group-description">{tag.description}</span>
-        <span className="tag-group-count">{count ?? emails.length}</span>
-        <ChevronDown size={16} className="expand-icon" />
-      </summary>
-      <div className="tag-group-content">
-        {emails.length ? (
-          emails.map((e) => <EmailRow key={e.id} email={e} onOpen={onOpen} compact />)
-        ) : (
-          <p className="inline-empty">No matches on this page yet.</p>
-        )}
-        <Link className="tag-detail-link" href={`/tags/${tag.id}`}>
-          View tag details
-          <ArrowRight size={14} />
-        </Link>
-      </div>
-    </details>
+    <Link
+      className={`inbox-tag-pill tag-${tag.priority.toLowerCase()}`}
+      href={`/tags/${tag.id}`}
+      aria-label={`${tag.name}: ${count === undefined ? 'view matching emails' : `${formattedCount} matching ${count === 1 ? 'email' : 'emails'}`}`}
+    >
+      <span className="tag-dot" aria-hidden="true" />
+      <span className="inbox-tag-name">{tag.name}</span>
+      <span className="inbox-tag-count">{formattedCount ?? '—'}</span>
+    </Link>
   );
 }
