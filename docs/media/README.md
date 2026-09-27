@@ -2,11 +2,11 @@
 
 Use the **800 × 418 landscape files** below for the website card shown in the X ad preview. Upload one PNG in the ad's **Add media** field.
 
-| Website-card image                                                                           | Direction                                                                                                               |
-| -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| [01 — Your inbox. Your rules.](evailbox-x-card-01-your-inbox-your-rules-800x418.png)         | The three-icon product introduction, arranged horizontally.                                                             |
-| [02 — Is that too much to ask? (revised)](evailbox-x-card-02-too-much-to-ask-v2-800x418.png) | Larger question fills the left side, with its logo and wordmark removed. The right-side sticker and three icons remain. |
-| [03 — Chaos, meet your rules.](evailbox-x-card-03-chaos-meet-your-rules-800x418.png)         | Headline beside the envelope-sorting illustration.                                                                      |
+| Website-card image                                                                           | Direction                                                                                                                      |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| [01 — Your inbox. Your rules.](evailbox-x-card-01-your-inbox-your-rules-800x418.png)         | The three-icon product introduction, arranged horizontally.                                                                    |
+| [02 — Is that too much to ask? (revised)](evailbox-x-card-02-too-much-to-ask-v3-800x418.png) | Large question on the left; the evailbox name sits beneath its green icon on the right. The sticker and provider icons remain. |
+| [03 — Chaos, meet your rules.](evailbox-x-card-03-chaos-meet-your-rules-800x418.png)         | Headline beside the envelope-sorting illustration.                                                                             |
 
 The supplied preview shows the original square creative cropped into a landscape card, removing its top and bottom. This is a placement mismatch rather than evidence that X rejects square images. The revised compositions were rebuilt horizontally with the image generation tool, then resampled without cropping to exactly **800 × 418 pixels**.
 

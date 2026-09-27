@@ -1,5 +1,21 @@
 # evailbox X website-card generation prompts
 
+## Variant 02 revision 3: brand name beneath the right icon
+
+Input: `evailbox-x-card-02-too-much-to-ask-v2-800x418.png`.
+
+Output: `evailbox-x-card-02-too-much-to-ask-v3-800x418.png`.
+
+Edited with built-in OpenAI image generation and exported at exactly 800 × 418 using Sharp with `fit: 'contain'`. Adds the evailbox name below its green icon on the right, retaining the large question and the rest of the composition.
+
+```text
+Use case: precise-object-edit / ads-marketing.
+Edit the supplied landscape evailbox ad with ONE SMALL CHANGE only:
+Add the lowercase brand name "evailbox" centered immediately beneath the central green evailbox envelope icon in the three-icon row on the RIGHT. Spell it exactly e-v-a-i-l-b-o-x. Use a clean medium-bold geometric sans-serif matching the existing campaign, dark forest green, sized for legibility in the final 800 x 418 export (about 20–22 pixels high there). Place the baseline safely above the lower edge, with about 20 pixels of bottom margin at 800 x 418, and leave a small clear gap below the icon. The name should be about the icon's width or modestly wider. It labels only the central green icon, not the whole trio. There is already blank space below that icon; use it.
+PRESERVE EVERYTHING ELSE as closely as possible: the large question on the left with the exact three line breaks "Is that" / "too much" / "to ask?", its size and positioning, the warm ivory background, the pale-lime angled "Nope." sticker with peeled corner, the "Your inbox. Your rules." line, and the Gmail, green evailbox, and Outlook icons. Keep their sizes, positions, colors, lighting, textures, and shadows. Do not add a logo or wordmark on the left. Do not add labels beneath Gmail or Outlook. Do not add any other elements or text.
+Preserve the same 800:418 landscape aspect ratio, ideally 1600 x 836 render. Return the finished ad image only.
+```
+
 ## Variant 02 revision: larger question, no left brand lockup
 
 Input: `evailbox-x-card-02-too-much-to-ask-800x418.png`.
