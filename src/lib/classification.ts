@@ -7,8 +7,6 @@ import { currentModelVersion, type ClassificationInput } from './classification-
 import type { Classification } from './jev';
 import { classifyEmailAgainstTags } from './jev';
 import { ApiError } from './errors';
-import { billingEnabled } from './billing/config';
-import { lockBillingUser, processingAccess } from './billing/state';
 import { fetchMessageText } from './providers/content';
 import { withAccountCredentials } from './providers/credentials';
 import { withProviderDeadline } from './providers/http';
@@ -19,7 +17,6 @@ type BatchResult = {
   classified: number;
   errors: number;
   remaining: number;
-  billingBlocked?: true;
   rateLimited?: true;
   retryAfterSeconds?: number;
 };
@@ -160,14 +157,6 @@ async function saveWave(
   const budget = deadline - Date.now() - 500;
   return db.$transaction(
     async (tx) => {
-      // Serialize allowance consumption with concurrent saves and subscription changes.
-      let billing;
-      if (billingEnabled()) {
-        await lockBillingUser(userId, tx);
-        billing = await processingAccess(userId, tx);
-        if (!billing.allowed) return none;
-      }
-      let slots = billing?.remaining ?? Infinity;
       // Stable lock order avoids two workers acquiring the same rows in opposite order.
       const ids = [...new Set(evaluated.flatMap((item) => item.tags.map((tag) => tag.id)))].sort();
       const tags = await tx.$queryRaw<{ id: string; version: number }[]>(
@@ -198,8 +187,6 @@ async function saveWave(
             tags.some((current) => current.id === tag.id && current.version === tag.version),
         );
         if (!valid.length) continue;
-        if (!email.firstClassifiedAt && slots <= 0) continue;
-        if (!email.firstClassifiedAt) slots--;
         accepted.push({ id: email.id, hash: item.hash });
         if (!email.firstClassifiedAt) firstClassifications++;
         for (const tag of valid) {
@@ -217,9 +204,6 @@ async function saveWave(
       if (firstClassifications)
         await tx.$executeRaw(Prisma.sql`INSERT INTO monthly_usage("userId",month,emails) VALUES(${userId}::uuid,date_trunc('month',CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date,${firstClassifications})
       ON CONFLICT("userId",month) DO UPDATE SET emails=monthly_usage.emails+EXCLUDED.emails`);
-      if (firstClassifications && billing && billing.access !== 'manual')
-        await tx.$executeRaw(Prisma.sql`INSERT INTO billing_usage("userId","periodStart",emails) VALUES(${userId}::uuid,${billing.start.toISOString()}::timestamp,${firstClassifications})
-          ON CONFLICT("userId","periodStart") DO UPDATE SET emails=billing_usage.emails+EXCLUDED.emails`);
       return { saved: rows.length, accepted: accepted.length };
     },
     { maxWait: 500, timeout: Math.min(10000, budget - 500) },
@@ -239,18 +223,10 @@ export async function classifyEmails(
   userId: string,
   options: ClassificationOptions = {},
 ): Promise<BatchResult> {
-  let limit = options.limit ?? 100;
+  const limit = options.limit ?? 100;
   if (!Number.isInteger(limit) || limit < 0 || limit > 100)
     throw new Error('Invalid classification batch limit');
-  if (billingEnabled()) {
-    const access = await processingAccess(userId);
-    if (!access.allowed) return { classified: 0, errors: 0, remaining: 0, billingBlocked: true };
-    limit = Math.min(limit, access.remaining);
-  }
-  const result = await classifyBatch(userId, options, { remaining: limit });
-  if (billingEnabled() && !(await processingAccess(userId)).allowed)
-    return { ...result, remaining: 0, billingBlocked: true };
-  return result;
+  return classifyBatch(userId, options, { remaining: limit });
 }
 async function classifyBatch(
   userId: string,
@@ -355,7 +331,6 @@ async function classifyBatch(
       if (retryAfterSeconds || Date.now() + 3000 >= deadline) break;
       retryAfterSeconds = await readCooldown();
       if (retryAfterSeconds || Date.now() + 3000 >= deadline) break;
-      if (billingEnabled() && !(await processingAccess(userId)).allowed) break;
       const waveStart = Date.now();
       const wave = pending.slice(index, index + concurrency);
       const outcomes = await Promise.all(

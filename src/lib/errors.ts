@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { ZodError } from 'zod';
 import { Prisma } from '@prisma/client';
+import { appUrl } from './env';
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -56,12 +57,20 @@ export function failure(error: unknown) {
     { status: 500 },
   );
 }
+function sameHost(origin: string, request: Request) {
+  try {
+    return new URL(origin).host === request.headers.get('host');
+  } catch {
+    return false;
+  }
+}
 export function route(handler: (request: Request) => Promise<Response>) {
   return async (request: Request) => {
     try {
       if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
         const origin = request.headers.get('origin');
-        if (!origin || origin !== new URL(process.env.NEXT_PUBLIC_APP_URL!).origin)
+        // Same-origin check: the configured URL, or the host this request was sent to.
+        if (!origin || (origin !== new URL(appUrl()).origin && !sameHost(origin, request)))
           throw new ApiError(403, 'INVALID_ORIGIN', 'Request origin is not allowed.');
       }
       return await handler(request);

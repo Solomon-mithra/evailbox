@@ -7,8 +7,6 @@ import { encrypt, decrypt } from './crypto';
 import { ApiError } from './errors';
 import { workspaceIds } from './workspace-selection';
 import { currentModelVersion } from './classification-version';
-import { billingEnabled } from './billing/config';
-import { processingAccess } from './billing/state';
 import type {
   EmailSummary,
   InboxPage,
@@ -248,10 +246,5 @@ export async function getInboxCounts(
       })),
     },
   };
-  if (billingEnabled() && result.processing) {
-    const access = await processingAccess(user.id);
-    result.processing.billingBlocked = !access.allowed;
-    result.processing.paused ||= !access.allowed;
-  }
   return result;
 }

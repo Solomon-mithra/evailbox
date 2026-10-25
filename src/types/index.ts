@@ -87,7 +87,6 @@ export interface InboxProcessing {
   remaining: number;
   importing: boolean;
   paused: boolean;
-  billingBlocked?: boolean;
 }
 export interface InboxAccountProgress {
   id: string;
@@ -109,4 +108,7 @@ export interface WorkspaceMetadata {
   user: User;
   tags: Tag[];
   accounts: EmailAccount[];
+}
+export interface AccountOverview {
+  user: { id: string; email: string; displayName: string; createdAt: string };
 }

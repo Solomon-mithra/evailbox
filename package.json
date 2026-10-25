@@ -17,11 +17,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test:db": "vitest run tests/database.test.ts",
-    "monitor": "tsx scripts/monitor.ts",
-    "test:burst": "RUN_BURST_TEST=1 vitest run tests/classification.test.ts -t \"synthetic 100-user\"",
-    "load:burst": "tsx scripts/load-test-signup-burst.ts",
-    "env:check": "node scripts/check-env-keys.mjs",
-    "stripe:catalog": "node --env-file=.env.local --import tsx scripts/stripe-catalog.ts"
+    "test:burst": "RUN_BURST_TEST=1 vitest run tests/classification.test.ts -t \"synthetic 100-user\""
   },
   "dependencies": {
     "@ai-sdk/gateway": "4.0.88",
@@ -33,12 +29,10 @@
     "@tailwindcss/postcss": "4.3.3",
     "@tanstack/react-query": "5.103.2",
     "@tanstack/react-query-persist-client": "^5.103.2",
-    "@vercel/analytics": "2.0.1",
     "ai": "7.0.108",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "idb-keyval": "^6.3.0",
-    "inngest": "^4.21.0",
     "jose": "^6.2.12",
     "lucide-react": "1.47.0",
     "next": "16.3.5",
@@ -49,7 +43,6 @@
     "sanitize-html": "^2.17.7",
     "server-only": "0.0.1",
     "sonner": "2.0.8",
-    "stripe": "22.6.2",
     "tailwind-merge": "3.7.0",
     "tailwindcss": "4.3.3",
     "zod": "4.6.5"

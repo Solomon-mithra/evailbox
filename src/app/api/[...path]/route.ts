@@ -1,5 +1,5 @@
 import { withAccountLock } from '@/lib/providers/credentials';
-import { NextResponse, after } from 'next/server';
+import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { requireUser, supabaseServer, adminAuth } from '@/lib/auth';
@@ -15,20 +15,11 @@ import {
 } from '@/lib/workspace';
 import { getInbox, getInboxCounts } from '@/lib/inbox';
 import { beginConnection, finishConnection } from '@/lib/oauth';
-import { requestDailySync } from '@/lib/work-queue';
-import { publishUserWork, recoverPendingWork } from '@/lib/inngest/dispatch';
-import { backgroundConfigured } from '@/lib/inngest/client';
+import { kickWork } from '@/lib/background';
 import { POST as queueSync } from '@/app/api/sync/route';
-import { constantTimeEqual, decrypt } from '@/lib/crypto';
 import { isDemo } from '@/lib/env';
 import { workspaceIds } from '@/lib/workspace-selection';
-import {
-  cleanupMailboxSubscription,
-  requestMailboxSubscriptionRenewal,
-} from '@/lib/mailbox-subscriptions';
 import { emailContentResponse } from '@/lib/email-content';
-import { lockBillingUser } from '@/lib/billing/state';
-import { cancelBillingForDeletion, clearBillingDeletion } from '@/lib/billing/service';
 import { capturePendingTagHistory, tagMatchScope } from '@/lib/tag-scope';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -40,23 +31,6 @@ async function dispatch(request: Request) {
     method = request.method;
   if (path === 'health' && method === 'GET')
     return ok({ status: 'ok', mode: isDemo() ? 'demo' : 'live' });
-  if (path.startsWith('cron/') && method === 'GET') {
-    if (
-      !process.env.CRON_SECRET ||
-      !constantTimeEqual(
-        request.headers.get('authorization') ?? '',
-        `Bearer ${process.env.CRON_SECRET}`,
-      )
-    )
-      throw new ApiError(401, 'UNAUTHORIZED', 'Invalid cron authorization.');
-    if (isDemo()) return ok({ skipped: true, reason: 'demo' });
-    if (path === 'cron/work') return ok(await recoverPendingWork());
-    if (path === 'cron/sync') {
-      await requestDailySync();
-      return ok(await recoverPendingWork());
-    }
-    throw new ApiError(404, 'NOT_FOUND', 'Endpoint not found.');
-  }
   if (isDemo())
     throw new ApiError(503, 'DEMO_MODE', 'This action needs a configured live workspace.');
   if (path === 'auth/signin' && method === 'POST') {
@@ -115,28 +89,23 @@ async function dispatch(request: Request) {
     );
   if (path === 'tags' && method === 'POST') {
     const data = tagSchema.parse(await jsonBody(request));
-    after(async () => {
-      await publishUserWork(user.id);
-    });
-    return ok(
-      await db.$transaction(async (tx) => {
-        await lockBillingUser(user.id, tx);
-        if ((await tx.tag.count({ where: { userId: user.id, workspace } })) >= 30)
-          throw new ApiError(409, 'TAG_LIMIT', 'You can create up to 30 tags.');
-        const created = await tx.tag.create({
-          data: { ...data, userId: user.id, workspace, nameKey: data.name.toLowerCase() },
-        });
-        await tx.user.update({
-          where: { id: user.id },
-          data: {
-            workRequested: true,
-            workRevision: { increment: 1 },
-          },
-        });
-        return created;
-      }, tagTransactionOptions),
-      201,
-    );
+    const created = await db.$transaction(async (tx) => {
+      if ((await tx.tag.count({ where: { userId: user.id, workspace } })) >= 30)
+        throw new ApiError(409, 'TAG_LIMIT', 'You can create up to 30 tags.');
+      const created = await tx.tag.create({
+        data: { ...data, userId: user.id, workspace, nameKey: data.name.toLowerCase() },
+      });
+      await tx.user.update({
+        where: { id: user.id },
+        data: {
+          workRequested: true,
+          workRevision: { increment: 1 },
+        },
+      });
+      return created;
+    }, tagTransactionOptions);
+    kickWork();
+    return ok(created, 201);
   }
   if (/^tags\/[^/]+$/.test(path)) {
     const id = idSchema.parse(path.split('/')[1]);
@@ -145,40 +114,35 @@ async function dispatch(request: Request) {
     if (method === 'GET') return ok(tag);
     if (method === 'PATCH') {
       const patch = tagSchema.partial().parse(await jsonBody(request));
-      after(async () => {
-        await publishUserWork(user.id);
-      });
-      return ok(
-        await db.$transaction(async (tx) => {
-          await lockBillingUser(user.id, tx);
-          const current = await tx.tag.findUniqueOrThrow({
-            where: { id, userId: user.id, workspace },
+      const updated = await db.$transaction(async (tx) => {
+        const current = await tx.tag.findUniqueOrThrow({
+          where: { id, userId: user.id, workspace },
+        });
+        const matchingChanged = (['name', 'prompt', 'keywords', 'senders'] as const).some(
+          (key) =>
+            patch[key] !== undefined && JSON.stringify(patch[key]) !== JSON.stringify(current[key]),
+        );
+        const updated = await tx.tag.update({
+          where: { id, userId: user.id, workspace },
+          data: {
+            ...patch,
+            ...(patch.name ? { nameKey: patch.name.toLowerCase() } : {}),
+            ...(matchingChanged ? { version: { increment: 1 } } : {}),
+          },
+        });
+        if (matchingChanged) {
+          await tx.emailClassification.deleteMany({
+            where: { tagId: id, userId: user.id, workspace },
           });
-          const matchingChanged = (['name', 'prompt', 'keywords', 'senders'] as const).some(
-            (key) =>
-              patch[key] !== undefined &&
-              JSON.stringify(patch[key]) !== JSON.stringify(current[key]),
-          );
-          const updated = await tx.tag.update({
-            where: { id, userId: user.id, workspace },
-            data: {
-              ...patch,
-              ...(patch.name ? { nameKey: patch.name.toLowerCase() } : {}),
-              ...(matchingChanged ? { version: { increment: 1 } } : {}),
-            },
+          await tx.user.update({
+            where: { id: user.id },
+            data: { workRequested: true, workRevision: { increment: 1 } },
           });
-          if (matchingChanged) {
-            await tx.emailClassification.deleteMany({
-              where: { tagId: id, userId: user.id, workspace },
-            });
-            await tx.user.update({
-              where: { id: user.id },
-              data: { workRequested: true, workRevision: { increment: 1 } },
-            });
-          }
-          return updated;
-        }, tagTransactionOptions),
-      );
+        }
+        return updated;
+      }, tagTransactionOptions);
+      kickWork();
+      return ok(updated);
     }
     if (method === 'DELETE') {
       await db.tag.delete({ where: { id, userId: user.id, workspace } });
@@ -207,23 +171,9 @@ async function dispatch(request: Request) {
     });
     if (!account) throw new ApiError(404, 'NOT_FOUND', 'Account not found.');
     await withAccountLock(user.id, workspace, id, async (fresh) => {
-      // Disconnect must remain possible even when provider credentials are invalid.
-      try {
-        await cleanupMailboxSubscription(user.id, id, Date.now() + 10000, {
-          account: fresh,
-          token: decrypt(fresh.accessToken),
-        });
-      } catch {
-        /* best effort */
-      }
-      try {
-        await db.emailAccount.deleteMany({
-          where: { id, userId: user.id, workspace, syncLeaseId: fresh.syncLeaseId },
-        });
-      } catch (error) {
-        await requestMailboxSubscriptionRenewal(user.id, id, workspace).catch(() => undefined);
-        throw error;
-      }
+      await db.emailAccount.deleteMany({
+        where: { id, userId: user.id, workspace, syncLeaseId: fresh.syncLeaseId },
+      });
     });
     return ok({ deleted: true });
   }
@@ -245,7 +195,6 @@ async function dispatch(request: Request) {
     )
       throw new ApiError(404, 'NOT_FOUND', 'Tag not found.');
     await db.$transaction(async (tx) => {
-      await lockBillingUser(user.id, tx);
       if (!ids) {
         await capturePendingTagHistory(tx, user.id, workspace, data.tagId);
       } else if (ids.length) {
@@ -262,10 +211,8 @@ async function dispatch(request: Request) {
         data: { workRequested: true, workRevision: { increment: 1 } },
       });
     }, tagTransactionOptions);
-    after(async () => {
-      await publishUserWork(user.id);
-    });
-    return ok({ queued: true, pending: true, workerAvailable: backgroundConfigured() }, 202);
+    kickWork();
+    return ok({ queued: true, pending: true, workerAvailable: true }, 202);
   }
   if (path === 'emails' && method === 'GET') return ok(await getWorkspace(user, url.searchParams));
   if (/^emails\/[^/]+$/.test(path)) {
@@ -310,12 +257,10 @@ async function dispatch(request: Request) {
   if (path === 'user' && method === 'DELETE') {
     const { confirm } = z.object({ confirm: z.literal('DELETE') }).parse(await jsonBody(request));
     void confirm;
-    await cancelBillingForDeletion(user.id);
     try {
       const { error } = await adminAuth().deleteUser(user.id);
       if (error) throw error;
     } catch {
-      await clearBillingDeletion(user.id);
       throw new ApiError(502, 'DELETE_FAILED', 'Account deletion could not finish. Try again.');
     }
     await db.user.deleteMany({ where: { id: user.id } });

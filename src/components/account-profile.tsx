@@ -1,6 +1,5 @@
 'use client';
 import { useState } from 'react';
-import { useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useDemo, usePrivateCache } from './providers';
@@ -9,77 +8,36 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Skeleton } from './ui/loader';
 import { ErrorState } from './states';
-import { BillingPanel } from './billing-panel';
 import { api } from '@/lib/api';
-import { plans, usagePeriod, type AccountOverview, type PlanId } from '@/lib/plans';
+import type { AccountOverview } from '@/types';
 
-export function AccountProfile({ suggestedPlan }: { suggestedPlan?: PlanId }) {
+export function AccountProfile() {
   const { user, ready } = usePrivateCache();
   const { workspace } = useWorkspaceSelection();
   const demo = useDemo();
-  const billingReturn = useSearchParams().get('billing');
-  const [pollStarted] = useState(() => Date.now());
-  const reconcile = billingReturn === 'success' || billingReturn === 'portal';
   const query = useQuery({
-    queryKey: ['private', user?.id, workspace, 'account', billingReturn],
+    queryKey: ['private', user?.id, workspace, 'account'],
     enabled: !!user && ready,
     refetchOnMount: 'always',
-    refetchInterval: (current) =>
-      billingReturn === 'success' &&
-      !demo &&
-      current.state.data?.billing.access !== 'active' &&
-      Date.now() - pollStarted < 60_000
-        ? 2000
-        : false,
-    queryFn: (): Promise<AccountOverview> => {
-      if (!demo) return reconcile ? api.post('/api/billing/refresh') : api.get('/api/account');
-      const period = usagePeriod();
-      return Promise.resolve({
-        user: {
-          id: 'demo-user',
-          email: 'alex@example.com',
-          displayName: 'Alex',
-          createdAt: period.start.toISOString(),
-        },
-        plan: { ...plans.STARTER, source: 'preview', requested: null },
-        usage: {
-          emails: 12,
-          periodStart: period.start.toISOString(),
-          periodEnd: period.end.toISOString(),
-        },
-        billingEnabled: true,
-        limitsEnforced: false,
-        billing: {
-          configured: false,
-          access: 'trial_available',
-          status: null,
-          trialEndsAt: null,
-          canStartTrial: true,
-          canManage: false,
-          cancelAtPeriodEnd: false,
-          processingAllowed: true,
-        },
-      });
-    },
+    queryFn: (): Promise<AccountOverview> =>
+      demo
+        ? Promise.resolve({
+            user: {
+              id: 'demo-user',
+              email: 'alex@example.com',
+              displayName: 'Alex',
+              createdAt: new Date().toISOString(),
+            },
+          })
+        : api.get('/api/account'),
   });
   if (query.isPending) return <Skeleton />;
   if (query.isError) return <ErrorState retry={() => void query.refetch()} />;
   return (
-    <>
-      <BillingPanel
-        account={query.data}
-        demo={demo}
-        suggestedPlan={suggestedPlan}
-        billingReturn={billingReturn}
-        verified={query.isFetchedAfterMount && !query.isFetching}
-        refreshing={query.isFetching}
-        refresh={() => void query.refetch()}
-      />
-      <section className="settings-section" aria-labelledby="profile-heading">
-        <h2 id="profile-heading">Profile</h2>
-        <ProfileForm key={query.data.user.displayName} account={query.data} demo={demo} />
-      </section>
-    </>
+    <section className="settings-section" aria-labelledby="profile-heading">
+      <h2 id="profile-heading">Profile</h2>
+      <ProfileForm key={query.data.user.displayName} account={query.data} demo={demo} />
+    </section>
   );
 }
 function ProfileForm({ account, demo }: { account: AccountOverview; demo: boolean }) {

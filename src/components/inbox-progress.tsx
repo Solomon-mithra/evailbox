@@ -1,12 +1,10 @@
-import Link from 'next/link';
 import type { InboxProcessing } from '@/types';
 import { INITIAL_IMPORT_LIMIT } from '@/lib/providers/sync-policy';
 
 export function InboxProgress({ processing }: { processing?: InboxProcessing }) {
   const accounts =
     processing?.accounts?.filter((account) => account.initialSync && account.importing) ?? [];
-  const blocked = processing?.billingBlocked && (processing.importing || processing.remaining > 0);
-  if (!accounts.length && !blocked) return null;
+  if (!accounts.length) return null;
 
   return (
     <div className="inbox-progress" aria-live="polite">
@@ -46,11 +44,6 @@ export function InboxProgress({ processing }: { processing?: InboxProcessing }) 
           </div>
         );
       })}
-      {blocked && (
-        <Link className="inbox-progress-plan text-link" href="/settings">
-          Manage plan
-        </Link>
-      )}
     </div>
   );
 }

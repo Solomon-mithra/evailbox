@@ -1,17 +1,17 @@
 import 'server-only';
 import { createHash, randomBytes } from 'node:crypto';
 import { cookies } from 'next/headers';
-import { NextResponse, after } from 'next/server';
+import { NextResponse } from 'next/server';
 import { createOAuthState, verifyOAuthState, constantTimeEqual, encrypt } from './crypto';
 import { exchangeCode, getAuthorizationUrl, getMailboxIdentity, type Provider } from './providers';
 import { requestWork } from './work-queue';
-import { requestMailboxSubscriptionRenewal } from './mailbox-subscriptions';
-import { publishUserWork } from './inngest/dispatch';
+import { kickWork } from './background';
 import { db } from './db';
+import { appUrl } from './env';
 import { ApiError } from './errors';
 import type { WorkspaceId } from './workspace-selection';
 const callback = (provider: Provider) =>
-  `${process.env.NEXT_PUBLIC_APP_URL}/api/accounts/${provider.toLowerCase()}/callback`;
+  `${appUrl()}/api/accounts/${provider.toLowerCase()}/callback`;
 export async function beginConnection(
   provider: Provider,
   userId: string,
@@ -80,12 +80,9 @@ export async function finishConnection(provider: Provider, userId: string, url: 
       syncError: null,
     },
   });
-  await requestMailboxSubscriptionRenewal(userId, account.id, workspace);
   await requestWork(userId, { sync: true, workspace });
-  after(async () => {
-    await publishUserWork(userId);
-  });
+  kickWork();
   return NextResponse.redirect(
-    new URL('/accounts?connected=1&workspace=' + workspace, process.env.NEXT_PUBLIC_APP_URL),
+    new URL('/accounts?connected=1&workspace=' + workspace, appUrl()),
   );
 }

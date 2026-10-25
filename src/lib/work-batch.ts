@@ -1,12 +1,11 @@
 import 'server-only';
-import { db } from '../db';
-import { ApiError } from '../errors';
-import type { TransientBodies } from '../transient-bodies';
-import { WORK_BATCH_SIZE } from './config';
-import { syncMailboxes } from '../sync';
-import { classifyEmails } from '../classification';
-import { withUserWorkLease } from '../work-queue';
-import { signalInboxChange } from '../realtime';
+import { db } from './db';
+import { ApiError } from './errors';
+import type { TransientBodies } from './transient-bodies';
+import { WORK_BATCH_SIZE } from './providers/sync-policy';
+import { syncMailboxes } from './sync';
+import { classifyEmails } from './classification';
+import { withUserWorkLease } from './work-queue';
 
 export async function fetchWorkBatch(
   userId: string,
@@ -15,11 +14,6 @@ export async function fetchWorkBatch(
 ) {
   // Mailbox leases/checkpoints protect fetches; AI cooldown must not stop mail ingestion.
   const result = await syncMailboxes(userId, undefined, deadline, { maxPages: 1, bodies });
-  try {
-    await signalInboxChange(userId);
-  } catch {
-    console.warn(JSON.stringify({ event: 'inbox_signal_deferred' }));
-  }
   return result;
 }
 
@@ -59,7 +53,7 @@ export async function processInboxBatch(userId: string) {
     }
     return { sync, classification };
   } catch {
-    // Provider/SDK/Prisma errors can embed private content. Never serialize them into Inngest.
+    // Provider/SDK/Prisma errors can embed private content. Never serialize them into a queue.
     throw new Error('Inbox batch could not complete');
   } finally {
     bodies.clear();
@@ -100,12 +94,6 @@ export async function finishWorkBatch(
       lastBackgroundSyncAt: new Date(),
     },
   });
-  // Signalling is best-effort and contains no email content. Reads are authoritative.
-  try {
-    await signalInboxChange(userId);
-  } catch {
-    console.warn(JSON.stringify({ event: 'inbox_signal_deferred' }));
-  }
   const current = await db.user.findUnique({
     where: { id: userId },
     select: { workRequested: true, workNotBefore: true },
