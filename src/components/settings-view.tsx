@@ -5,7 +5,7 @@ import { useWorkspaceSettings, useAction } from '@/hooks/useFetch';
 import { signOut } from '@/hooks/useAuth';
 import { useDemo, useTrustedUser } from './providers';
 import { AccountsView } from './accounts-view';
-import { AccountProfile } from './account-profile';
+import { KeySettings } from './key-settings';
 import { Button } from './ui/button';
 import { ConfirmDialog } from './confirm-dialog';
 import { Skeleton } from './ui/loader';
@@ -34,34 +34,36 @@ export function SettingsView() {
       <div className="page-heading">
         <div>
           <h1>Settings</h1>
-          <p>Manage your subscription, profile, and connected accounts.</p>
+          <p>Add your mail and AI keys, connect accounts, and manage this inbox.</p>
         </div>
       </div>
-      <AccountProfile />
+      <KeySettings />
       <section className="settings-section">
         <AccountsView embedded />
       </section>
       <section className="settings-section">
         <h2>General</h2>
         <div className="settings-card">
-          <div className="setting-row">
-            <div>
-              <strong>Signed in as</strong>
-              <p>{user?.email}</p>
+          {user?.canSignOut && (
+            <div className="setting-row">
+              <div>
+                <strong>Password protection</strong>
+                <p>This instance is locked with APP_PASSWORD.</p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  demo
+                    ? toast.info('No account is signed in to this demo.')
+                    : void signOut().catch((error) => toast.error(error.message))
+                }
+              >
+                <LogOut size={15} />
+                Sign out
+              </Button>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() =>
-                demo
-                  ? toast.info('No account is signed in to this demo.')
-                  : void signOut().catch((error) => toast.error(error.message))
-              }
-            >
-              <LogOut size={15} />
-              Sign out
-            </Button>
-          </div>
+          )}
           {query.isLoading ? (
             <Skeleton />
           ) : query.isError ? (
@@ -92,8 +94,11 @@ export function SettingsView() {
           )}
           <div className="setting-row">
             <div>
-              <strong>Delete account</strong>
-              <p>Remove both workspaces, connections, drafts, and saved emails.</p>
+              <strong>Reset data</strong>
+              <p>
+                Remove both workspaces&apos; connections, tags, drafts and saved emails. Your keys
+                stay.
+              </p>
             </div>
             <Button
               variant="ghost"
@@ -102,7 +107,7 @@ export function SettingsView() {
               onClick={() => setDeleting(true)}
             >
               <Trash2 size={15} />
-              Delete account
+              Reset data
             </Button>
           </div>
         </div>
@@ -110,20 +115,20 @@ export function SettingsView() {
       <ConfirmDialog
         open={deleting}
         onOpenChange={setDeleting}
-        title={demo ? 'Reset demo data?' : 'Permanently delete your account?'}
+        title={demo ? 'Reset demo data?' : 'Reset all data?'}
         description={
           demo
             ? 'Reset both workspaces and restore the sample inbox.'
-            : 'Your evailbox account and all stored data will be permanently removed. Your provider emails are unaffected.'
+            : 'Connections, tags, drafts and saved emails are removed from this server. Mail in Gmail and Outlook is not affected.'
         }
-        label={demo ? 'Reset demo' : 'Delete permanently'}
+        label={demo ? 'Reset demo' : 'Reset data'}
         onConfirm={async () => {
           await mutation.mutateAsync({
             path: '/api/user',
             method: 'DELETE',
             body: { confirm: 'DELETE' },
           });
-          window.location.assign(demo ? '/inbox' : '/signin');
+          window.location.assign('/inbox');
         }}
       />
     </>

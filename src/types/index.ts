@@ -4,6 +4,8 @@ export interface User {
   id: string;
   email: string;
   workRequested?: boolean;
+  /** Only true when APP_PASSWORD gates this instance. */
+  canSignOut?: boolean;
 }
 export interface Tag {
   id: string;
@@ -87,6 +89,8 @@ export interface InboxProcessing {
   remaining: number;
   importing: boolean;
   paused: boolean;
+  /** False until an AI Gateway key is saved; pending tag work then waits instead of polling. */
+  aiConfigured?: boolean;
 }
 export interface InboxAccountProgress {
   id: string;
@@ -108,7 +112,4 @@ export interface WorkspaceMetadata {
   user: User;
   tags: Tag[];
   accounts: EmailAccount[];
-}
-export interface AccountOverview {
-  user: { id: string; email: string; displayName: string; createdAt: string };
 }

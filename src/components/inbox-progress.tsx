@@ -1,10 +1,12 @@
+import Link from 'next/link';
 import type { InboxProcessing } from '@/types';
 import { INITIAL_IMPORT_LIMIT } from '@/lib/providers/sync-policy';
 
 export function InboxProgress({ processing }: { processing?: InboxProcessing }) {
   const accounts =
     processing?.accounts?.filter((account) => account.initialSync && account.importing) ?? [];
-  if (!accounts.length) return null;
+  const aiOff = processing?.aiConfigured === false && processing.remaining > 0;
+  if (!accounts.length && !aiOff) return null;
 
   return (
     <div className="inbox-progress" aria-live="polite">
@@ -44,6 +46,14 @@ export function InboxProgress({ processing }: { processing?: InboxProcessing }) 
           </div>
         );
       })}
+      {aiOff && (
+        <p className="inbox-progress-note">
+          Tags are off until you add an AI key.{' '}
+          <Link className="text-link" href="/settings?setup=ai">
+            Add key in Settings
+          </Link>
+        </p>
+      )}
     </div>
   );
 }

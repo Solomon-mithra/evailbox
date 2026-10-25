@@ -8,7 +8,9 @@ import {
   SESSION_COOKIE,
   checkPassword,
   createSessionToken,
+  loginWait,
   passwordProtected,
+  recordLogin,
 } from '@/lib/session';
 import { db } from '@/lib/db';
 import { route, ok, ApiError, jsonBody } from '@/lib/errors';
@@ -44,12 +46,17 @@ async function dispatch(request: Request) {
     throw new ApiError(503, 'DEMO_MODE', 'This action needs a configured live workspace.');
   if (path === 'auth/signin' && method === 'POST') {
     const { password } = z.object({ password: z.string().max(500) }).parse(await jsonBody(request));
-    if (!passwordProtected() || !(await checkPassword(password))) {
-      // ponytail: fixed delay, not a lockout; put a rate-limiting proxy in front if exposed publicly.
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      throw new ApiError(401, 'INVALID_PASSWORD', 'That password is not correct.');
-    }
-    const { token, maxAge } = await createSessionToken();
+    const wait = loginWait();
+    if (wait)
+      throw new ApiError(
+        429,
+        'TOO_MANY_ATTEMPTS',
+        `Too many attempts. Try again in ${wait} seconds.`,
+      );
+    const valid = passwordProtected() && checkPassword(password);
+    recordLogin(valid);
+    if (!valid) throw new ApiError(401, 'INVALID_PASSWORD', 'That password is not correct.');
+    const { token, maxAge } = createSessionToken();
     (await cookies()).set(SESSION_COOKIE, token, {
       httpOnly: true,
       secure: appUrl().startsWith('https:'),
@@ -60,7 +67,8 @@ async function dispatch(request: Request) {
     return ok({ signedIn: true });
   }
   const user = await requireUser();
-  if (path === 'auth/me' && method === 'GET') return ok(user);
+  if (path === 'auth/me' && method === 'GET')
+    return ok({ ...user, canSignOut: passwordProtected() });
   if (path === 'auth/signout' && method === 'POST') {
     (await cookies()).delete(SESSION_COOKIE);
     return ok({ signedOut: true });

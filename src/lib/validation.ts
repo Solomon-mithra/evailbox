@@ -23,7 +23,3 @@ export const classifySchema = z
   })
   .strict();
 export type TagInput = z.infer<typeof tagSchema>;
-export const accountPatch = z
-  .object({ displayName: z.string().trim().max(80).optional() })
-  .strict()
-  .refine((value) => Object.keys(value).length > 0, 'Choose something to update.');

@@ -5,7 +5,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 let generated: Buffer | undefined;
 /** ENCRYPTION_SECRET_KEY wins; otherwise one key is created on first use in data/secret.key. */
-function key() {
+export function serverSecret() {
   const value = process.env.ENCRYPTION_SECRET_KEY;
   if (value) {
     if (!/^[a-f0-9]{64}$/i.test(value)) throw new Error('Invalid encryption key');
@@ -32,7 +32,7 @@ function key() {
 }
 export function encrypt(value: string) {
   const iv = randomBytes(12);
-  const cipher = createCipheriv('aes-256-gcm', key(), iv);
+  const cipher = createCipheriv('aes-256-gcm', serverSecret(), iv);
   const ciphertext = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
   return [
     'v1',
@@ -45,7 +45,7 @@ export function decrypt(value: string) {
   const [version, iv, tag, data, ...extra] = value.split('.');
   if (version !== 'v1' || !iv || !tag || !data || extra.length)
     throw new Error('Invalid encrypted value');
-  const decipher = createDecipheriv('aes-256-gcm', key(), Buffer.from(iv, 'base64url'));
+  const decipher = createDecipheriv('aes-256-gcm', serverSecret(), Buffer.from(iv, 'base64url'));
   decipher.setAuthTag(Buffer.from(tag, 'base64url'));
   return Buffer.concat([
     decipher.update(Buffer.from(data, 'base64url')),

@@ -3,6 +3,7 @@ import { tagMatchScope } from './tag-scope';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { db } from './db';
+import { jevApiKey } from './app-settings';
 import { encrypt, decrypt } from './crypto';
 import { ApiError } from './errors';
 import { workspaceIds } from './workspace-selection';
@@ -171,7 +172,7 @@ export async function getInboxCounts(
   };
   const version = currentModelVersion(),
     now = new Date();
-  const [progressRows, accounts, owner, cooldown, totals, tagRows] = await Promise.all([
+  const [progressRows, accounts, owner, cooldown, totals, tagRows, aiKey] = await Promise.all([
     db.$queryRaw<{ accountId: string; imported: bigint; remaining: bigint; tagged: bigint }[]>(
       Prisma.sql`
       WITH email_progress AS (
@@ -224,6 +225,7 @@ export async function getInboxCounts(
       WHERE e."inInbox" = true AND e."contentHash" <> '' AND c."contentHash" = e."contentHash" AND c."modelVersion" = ${version}
         AND c."userId" = ${user.id} AND c.workspace = ${input.workspace}
         AND c.matched = true AND c."tagVersion" = t.version GROUP BY c."tagId"`),
+    jevApiKey(),
   ]);
   const progress = new Map(progressRows.map((row) => [row.accountId, row]));
   const accountProgress = accounts.map((account) => {
@@ -251,6 +253,7 @@ export async function getInboxCounts(
       importing: accounts.some((account) => account.syncRequested),
       paused: (owner?.workNotBefore ?? now) > now || (cooldown?.notBefore ?? now) > now,
       accounts: accountProgress,
+      aiConfigured: !!aiKey,
     },
     total: Number(totals[0].total),
     needsTotal: Number(totals[0].needsTotal),

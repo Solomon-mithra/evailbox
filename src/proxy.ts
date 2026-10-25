@@ -22,7 +22,7 @@ export async function proxy(request: NextRequest) {
     return path === '/signin'
       ? NextResponse.redirect(new URL('/inbox', request.url))
       : NextResponse.next();
-  const signedIn = await verifySessionToken(request.cookies.get(SESSION_COOKIE)?.value);
+  const signedIn = verifySessionToken(request.cookies.get(SESSION_COOKIE)?.value);
   if (!signedIn && path !== '/signin')
     return NextResponse.redirect(new URL('/signin', request.url));
   if (signedIn && path === '/signin') return NextResponse.redirect(new URL('/inbox', request.url));

@@ -6,7 +6,7 @@ import { Inbox, FilePenLine, Tags, Layers2, Settings2, LogOut, Menu, X, Plus } f
 import { Dialog } from 'radix-ui';
 import { useEffect, useState } from 'react';
 import { useWorkspaceMetadata, useInboxCounts } from '@/hooks/useFetch';
-import { useDemo } from './providers';
+import { useDemo, useSessionIdentity } from './providers';
 import { signOut } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import { WorkspaceSwitcher } from './workspace-switcher';
@@ -23,7 +23,8 @@ const links = [
 function NavigationContent({ onNavigate }: { onNavigate?: () => void }) {
   const { beforeNavigate } = useReaderNavigation();
   const pathname = usePathname();
-  const demo = useDemo();
+  const demo = useDemo(),
+    canSignOut = useSessionIdentity()?.canSignOut;
   const { data } = useWorkspaceMetadata();
   const counts = useInboxCounts();
   const needs = counts.data?.needsTotal ?? 0;
@@ -94,21 +95,23 @@ function NavigationContent({ onNavigate }: { onNavigate?: () => void }) {
             </strong>
             <small>{data?.user.email ?? 'Loading account…'}</small>
           </div>
-          <button
-            className="icon-button"
-            aria-label="Sign out"
-            title="Sign out"
-            onClick={async () => {
-              if (!(await beforeNavigate())) return;
-              if (demo) {
-                toast.info('This is a demo workspace. No account is signed in.');
-                return;
-              }
-              await signOut().catch((error) => toast.error(error.message));
-            }}
-          >
-            <LogOut size={17} />
-          </button>
+          {canSignOut && (
+            <button
+              className="icon-button"
+              aria-label="Sign out"
+              title="Sign out"
+              onClick={async () => {
+                if (!(await beforeNavigate())) return;
+                if (demo) {
+                  toast.info('This is a demo workspace. No account is signed in.');
+                  return;
+                }
+                await signOut().catch((error) => toast.error(error.message));
+              }}
+            >
+              <LogOut size={17} />
+            </button>
+          )}
         </div>
       </div>
     </>

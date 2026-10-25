@@ -1,4 +1,7 @@
-/** Optional APP_PASSWORD gate. Web Crypto only, so the proxy and route handlers share it. */
+import { createHmac, timingSafeEqual } from 'node:crypto';
+import { serverSecret } from './crypto';
+
+/** Optional APP_PASSWORD gate. The proxy runs on Node.js, so it shares this module. */
 export const SESSION_COOKIE = 'evailbox_session';
 const SESSION_DAYS = 30;
 
@@ -6,40 +9,55 @@ export function passwordProtected() {
   return !!process.env.APP_PASSWORD;
 }
 
-async function sign(value: string) {
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(process.env.APP_PASSWORD!),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
-  const mac = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`session:${value}`));
-  return Buffer.from(mac).toString('base64url');
+// Keyed by the random server secret, so a stolen cookie cannot be brute-forced offline into
+// the password. Changing APP_PASSWORD or the secret invalidates every session.
+function mac(purpose: string, value: string) {
+  const key = createHmac('sha256', serverSecret())
+    .update(`session-key:${process.env.APP_PASSWORD}`)
+    .digest();
+  return createHmac('sha256', key).update(`${purpose}:${value}`).digest();
 }
 
-function equal(a: string, b: string) {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
+function equal(a: Buffer, b: Buffer) {
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
-/** Changing APP_PASSWORD invalidates every existing session. */
-export async function createSessionToken(now = Date.now()) {
+export function createSessionToken(now = Date.now()) {
   const expires = String(now + SESSION_DAYS * 86_400_000);
-  return { token: `${expires}.${await sign(expires)}`, maxAge: SESSION_DAYS * 86_400 };
+  return {
+    token: `${expires}.${mac('session', expires).toString('base64url')}`,
+    maxAge: SESSION_DAYS * 86_400,
+  };
 }
 
-export async function verifySessionToken(token: string | undefined, now = Date.now()) {
+export function verifySessionToken(token: string | undefined, now = Date.now()) {
   if (!passwordProtected()) return true;
-  const [expires, mac, ...extra] = token?.split('.') ?? [];
-  if (!expires || !mac || extra.length || !/^\d+$/.test(expires) || Number(expires) < now)
+  const [expires, signature, ...extra] = token?.split('.') ?? [];
+  if (!expires || !signature || extra.length || !/^\d+$/.test(expires) || Number(expires) < now)
     return false;
-  return equal(mac, await sign(expires));
+  return equal(Buffer.from(signature, 'base64url'), mac('session', expires));
 }
 
-export async function checkPassword(candidate: string) {
-  // Compare MACs so length and content do not leak through timing.
-  return equal(await sign(`pw:${candidate}`), await sign(`pw:${process.env.APP_PASSWORD}`));
+export function checkPassword(candidate: string) {
+  // Equal-length MACs so neither length nor content leaks through timing.
+  return equal(mac('password', candidate), mac('password', process.env.APP_PASSWORD ?? ''));
+}
+
+// ponytail: one in-memory counter for the whole instance (single owner, single process);
+// it resets on restart. Move it to SQLite if restarts become an attack vector.
+const failures = { count: 0, until: 0 };
+/** Seconds until another password attempt is allowed; 0 when allowed. */
+export function loginWait(now = Date.now()) {
+  return Math.max(0, Math.ceil((failures.until - now) / 1000));
+}
+export function recordLogin(success: boolean, now = Date.now()) {
+  if (success) {
+    failures.count = 0;
+    failures.until = 0;
+    return;
+  }
+  failures.count++;
+  // Five free attempts, then 1s, 2s, 4s… capped at 15 minutes.
+  if (failures.count > 5)
+    failures.until = now + Math.min(900_000, 1000 * 2 ** (failures.count - 6));
 }

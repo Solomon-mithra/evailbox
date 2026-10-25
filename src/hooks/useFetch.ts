@@ -56,7 +56,9 @@ function usePrivateQuery<T>(kind: string, path: string, filters: Filters, sample
       ]);
       const progress =
         kind === 'counts' ? (query.state.data as InboxCounts | undefined)?.processing : undefined;
-      const processing = progress && (progress.importing || progress.remaining > 0);
+      const processing =
+        progress &&
+        (progress.importing || (progress.remaining > 0 && progress.aiConfigured !== false));
       if (!demo && kind !== 'settings' && (metadata?.user.workRequested || processing))
         return 2_000;
       return (
