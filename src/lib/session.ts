@@ -44,23 +44,21 @@ export function checkPassword(candidate: string) {
 }
 
 // ponytail: one in-memory counter for the whole instance (single owner; per-IP buckets are
-// spoofable behind proxies). The 60s cap bounds how long a stranger's guessing can lock the
-// owner out while still holding guessing to ~1/minute. Resets on restart.
-const failures = { count: 0, until: 0, last: 0 };
-const QUIET_RESET_MS = 15 * 60_000;
+// spoofable behind proxies). A stranger's guessing can delay new sign-ins by up to 15 minutes,
+// but existing sessions keep working and restarting the server clears the counter.
+const failures = { count: 0, until: 0 };
 /** Seconds until another password attempt is allowed; 0 when allowed. */
 export function loginWait(now = Date.now()) {
   return Math.max(0, Math.ceil((failures.until - now) / 1000));
 }
 export function recordLogin(success: boolean, now = Date.now()) {
-  if (success || now - failures.last > QUIET_RESET_MS) {
+  if (success) {
     failures.count = 0;
     failures.until = 0;
+    return;
   }
-  if (success) return;
   failures.count++;
-  failures.last = now;
-  // Five free attempts, then 1s, 2s, 4s… capped at one minute.
+  // Five free attempts, then 1s, 2s, 4s… capped at 15 minutes; no reset without a success.
   if (failures.count > 5)
-    failures.until = now + Math.min(60_000, 1000 * 2 ** (failures.count - 6));
+    failures.until = now + Math.min(900_000, 1000 * 2 ** (failures.count - 6));
 }

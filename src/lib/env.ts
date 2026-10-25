@@ -7,7 +7,7 @@ const schema = z.object({
     .string()
     .regex(/^[a-f0-9]{64}$/i)
     .optional(),
-  APP_PASSWORD: z.string().min(8).optional(),
+  APP_PASSWORD: z.string().min(12, 'APP_PASSWORD must be at least 12 characters').optional(),
 });
 export function validateEnv(source: Record<string, string | undefined> = process.env) {
   // Treat empty values from copied .env templates as unset.

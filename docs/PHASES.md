@@ -96,7 +96,8 @@ and a browser QA round shows Settings → connect → inbox working with the exi
 - Intermediate commits ec9bd4f–c8bf997 used `--no-verify`: the pre-commit typecheck covers `tests/`,
   which only compiles again after 5.1. Final commits run the hook.
 - Security review findings addressed: Host allowlist against DNS rebinding (2942ef0 follow-up in
-  c8bf997), session MAC keyed by the server secret plus password, and login backoff (capped at 60 s
-  with a 15-minute quiet reset, so a stranger can't lock the owner out for long).
+  c8bf997), session MAC keyed by the server secret plus password, and login backoff (15-minute cap,
+  no quiet reset; signed-in sessions are unaffected and a restart clears it), plus a 12-character
+  minimum for APP_PASSWORD.
 - `AGENTS.md` still carries the original author's commit-and-push workflow for agents; it's kept
   as is.
