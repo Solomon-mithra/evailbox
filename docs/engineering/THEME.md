@@ -1,10 +1,10 @@
 # Forest, mint, and lime theme
 
-Current visual guidance plus dated historical review notes. Notification/digest UI mentioned in historical checks has since been retired; those screenshots and checks do not establish the current deployment. See [status](../STATUS.md).
+Current visual guidance plus dated historical review notes. Notification/digest UI mentioned in historical checks has since been retired; those screenshots and checks do not establish the current deployment.
 
 The supplied palette is adapted to an inbox used frequently throughout the day. Forest green anchors navigation and primary actions. White email surfaces protect reading contrast. Lime marks the active page and high-priority groups; mint and cyan support medium- and low-priority tags. Priority labels, icons, and tab underlines accompany color. Errors and destructive actions retain red semantics.
 
-All app pages use the cool off-white canvas `#f8fafc`, including sign-in and standalone app states. Page-heading boxes retain their lime/mint gradients. The public landing page has separately scoped `#fbfcf9` and a green radial hero backdrop; the app-background adjustment does not flatten those surfaces.
+All app pages use the cool off-white canvas `#f8fafc`, including sign-in and standalone app states. Page-heading boxes retain their lime/mint gradients.
 
 The main implementation lives in `src/app/globals.css`. Theme tokens are shared by navigation, inbox rows, settings, dialogs, forms and sign-in. `src/app/layout.tsx` loads a local variable Inter font with `next/font/local` and a swap fallback. No runtime font request goes to a third party.
 
@@ -53,8 +53,6 @@ References: [WCAG text contrast](https://www.w3.org/WAI/WCAG22/Understanding/con
 
 Historical theme previews (before the evailbox rename and final canvas adjustment): [desktop](theme/desktop.png) and [mobile](theme/mobile.png). Both use synthetic demo mail.
 
-The milestone test counts below are historical. See [STATUS.md](../STATUS.md) for the latest source baseline, check results and remaining acceptance.
-
 Font source: [Inter variable WOFF2](https://github.com/rsms/inter/blob/master/docs/font-files/InterVariable.woff2). The upstream SIL Open Font License is included in `src/app/fonts/LICENSE.txt`.
 
 ## Tags page refinement
@@ -67,28 +65,12 @@ Verified full-card navigation, independent edit/menu controls, deletion cancella
 
 Historical tag-card previews (before the evailbox rename and final canvas adjustment): [tags on desktop](theme/tags-desktop.png) and [tags on mobile](theme/tags-mobile.png).
 
-## evailbox landing page and identity
-
-The public homepage at `/` introduces evailbox to people managing busy personal and work inboxes. The dashboard now lives at `/inbox`. The landing page leads with “Important emails. Out of the noise.” and demonstrates the core workflow: a rule written in ordinary language produces relevant email matches. Visitors can switch the illustrative example between Personal and Work. The primary action is **Open inbox**.
-
-| Before                                                   | After                                                         | Why                                                                                           |
-| -------------------------------------------------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| Root opened the application directly                     | Public homepage at `/`, application at `/inbox`               | Explain the product before asking a new visitor to use it                                     |
-| Generic inbox preview                                    | Interactive rule-to-matches example                           | Show what makes the product useful across work and personal mail                              |
-| Previous product name and layered icon                   | Lowercase evailbox wordmark and shared envelope mark          | Consistent identity across navigation, sign-in, metadata, favicon, notifications, and digests |
-| Changing a tab could animate through low-contrast colors | Immediate example selection with visible keyboard focus       | Preserve contrast during keyboard and pointer changes                                         |
-| Enlarged text could overflow the narrow example          | Wrapping selectors, flexible text, and relative avatar sizing | Preserve content and controls at 200% text size                                               |
-
-The page uses the existing Inter font and forest/lime tokens, 16–17px introduction text, 12px minimum example metadata, visible selection and focus, and 44–52px primary targets. Supporting text against the strongest hero gradient endpoint measures 4.99:1, the secondary headline 5.16:1 against the base background, and primary button text 10.14:1. Company-style presentation uses actual product capabilities, explicit example labeling, and practical mailbox/AI explanations, without invented customer counts, endorsements, or performance claims.
-
-Current navigation, authentication callbacks and reset destinations point to `/inbox`. Notification/digest delivery and the old service worker have been retired. Previously delivered `/?email=…&workspace=…` links redirect with their parameters preserved. In live mode, `/` bypasses authentication; `/inbox` and existing application routes remain protected. The homepage is indexable while application metadata retains noindex.
-
-Browser storage moves to evailbox keys with a compatibility reader for the previous keys. Existing rules, workspace choice, and demo edits are preserved. Only known generated demo-email sentences and classification explanations receive a copy update; user-written rules stay unchanged. Technical Jev model identifiers and historical repository/deployment URLs retain their actual values.
-
-At the landing-page milestone: 100 tests, lint, production build with TypeScript, and production HTTP checks passed. Checks cover public/private routing, refreshed auth cookies, delivered links, legacy redirects, demo migration, blocked storage writes, and preservation of custom rules. Browser review exercised Personal/Work example switching by pointer and keyboard, 320–1440px layouts, 200% text, and text-spacing overrides. The checked mobile landing state had no automated axe A/AA violations; gradient contrast was checked separately. Browser control was returned to the user before the final copy-only change, so final copy and routes were verified against production HTML rather than through a further browser pass.
-
 ## Final background and provider-logo refinements
 
-The user-requested canvas change applies across app pages, including sign-in, while preserving the page-heading gradients and landing-page background. Shared official Gmail and Outlook SVGs replace placeholders in Accounts, its embedded Settings view and the landing provider strip. Logo dimensions, accessibility treatment and provenance are recorded in [PROVIDER_LOGOS.md](PROVIDER_LOGOS.md).
+The canvas applies across app pages, including sign-in, while preserving the page-heading gradients. Shared official Gmail and Outlook SVGs are used in Accounts and Settings. Logo dimensions, accessibility treatment and provenance are recorded in [PROVIDER_LOGOS.md](PROVIDER_LOGOS.md).
 
 These final adjustments were checked through source, automated checks and HTTP asset/HTML responses as applicable. They were made after browser control returned to the user, so they do not have a fresh visual/browser acceptance record. Earlier screenshots and axe results must not be presented as final-release screenshots or full accessibility certification.
+
+## Settings keys (open-source conversion)
+
+The **Mail and AI keys** section reuses the settings card, row spacing, forest focus rings and lime status chips. Each provider row is a native `<details>` disclosure with a numbered setup sequence, which is a real ordered procedure. The redirect URI sits in a mint strip with a copy button; it is the only code-styled text on the page because it must be copied exactly. Secret fields are password inputs that report "Saved" without ever showing the stored value.
