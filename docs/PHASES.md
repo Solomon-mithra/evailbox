@@ -110,5 +110,9 @@ and a browser QA round shows Settings → connect → inbox working with the exi
   c8bf997), session MAC keyed by the server secret plus password, and login backoff (15-minute cap,
   no quiet reset; signed-in sessions are unaffected and a restart clears it), plus a 12-character
   minimum for APP_PASSWORD.
+- Push-time review: the Host allowlist only stops browsers; LAN clients can spoof Host. The npm
+  scripts now bind to 127.0.0.1 by default, and `HOST=0.0.0.0` requires APP_PASSWORD (verified: the
+  LAN IP is refused, and 0.0.0.0 without a password returns 503). The repeated lockout-vs-brute-force
+  finding is acknowledged without change: 15-minute cap, existing sessions unaffected.
 - `AGENTS.md` still carries the original author's commit-and-push workflow for agents; it's kept
   as is.

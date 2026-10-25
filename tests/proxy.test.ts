@@ -53,6 +53,12 @@ describe('host allow-list (DNS-rebinding guard)', () => {
     vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://mail.example.com');
     expect((await proxy(request('/inbox', 'mail.example.com'))).status).toBe(503);
   });
+  it('refuses to serve when bound beyond loopback without a password', async () => {
+    vi.stubEnv('HOST', '0.0.0.0');
+    expect((await proxy(request('/inbox'))).status).toBe(503);
+    vi.stubEnv('ALLOW_NO_PASSWORD', '1');
+    expect(passes(await proxy(request('/inbox')))).toBe(true);
+  });
 });
 
 describe('without APP_PASSWORD', () => {

@@ -18,7 +18,7 @@ export async function proxy(request: NextRequest) {
     );
   if (unlockedPublicInstance())
     return new NextResponse(
-      'Set APP_PASSWORD (or ALLOW_NO_PASSWORD=1) before serving evailbox on a non-local address.',
+      'Set APP_PASSWORD (or ALLOW_NO_PASSWORD=1) before serving evailbox on a non-local address or HOST.',
       { status: 503 },
     );
   // API handlers verify the session themselves and return JSON errors instead of redirects.

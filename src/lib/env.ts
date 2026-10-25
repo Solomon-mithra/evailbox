@@ -39,10 +39,16 @@ export function allowedHost(host: string | null) {
 }
 
 /**
- * Fail closed: an instance served on a non-loopback address must have APP_PASSWORD,
+ * Fail closed: an instance served on, or bound to, a non-loopback address must have APP_PASSWORD,
  * unless the operator explicitly opts out (e.g. a private Tailscale network).
  */
 export function unlockedPublicInstance() {
   if (isDemo() || process.env.APP_PASSWORD || process.env.ALLOW_NO_PASSWORD === '1') return false;
-  return !['localhost', '127.0.0.1', '[::1]'].includes(new URL(appUrl()).hostname);
+  const loopback = ['localhost', '127.0.0.1', '[::1]', '::1'];
+  // HOST is the interface the npm scripts bind to; anything else is reachable by other machines,
+  // and non-browser clients can send any Host header.
+  return (
+    !loopback.includes(new URL(appUrl()).hostname) ||
+    !loopback.includes(process.env.HOST || '127.0.0.1')
+  );
 }

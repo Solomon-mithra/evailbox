@@ -61,6 +61,7 @@ Nothing is required. Every variable is optional:
 | `NEXT_PUBLIC_APP_URL`   | `http://localhost:3000`   | The address you open evailbox at. OAuth redirect URIs are built from it, and requests for any other host are refused, which protects against DNS rebinding. Set it when using another port, a LAN address or a domain. |
 | `APP_PASSWORD`          | unset                     | At least 12 characters. When set, the app asks for this password. **Set it whenever evailbox is reachable by anyone but you.**                                                                                         |
 | `ALLOW_NO_PASSWORD`     | unset                     | evailbox refuses to serve a non-localhost `NEXT_PUBLIC_APP_URL` without `APP_PASSWORD`. Set to `1` only on a network you fully trust.                                                                                  |
+| `HOST`                  | `127.0.0.1`               | Interface `npm run dev`/`npm start` listen on. Use `0.0.0.0` to accept other machines (Docker, LAN); like a public URL, this requires `APP_PASSWORD`.                                                                  |
 | `DATABASE_URL`          | `file:./data/evailbox.db` | SQLite file location.                                                                                                                                                                                                  |
 | `ENCRYPTION_SECRET_KEY` | `data/secret.key`         | 64 hex characters. Overrides the generated key that encrypts OAuth tokens and stored keys.                                                                                                                             |
 | `APP_MODE`              | `live`                    | `demo` serves sample mail and never calls providers.                                                                                                                                                                   |
@@ -73,6 +74,8 @@ OAuth and AI keys entered in Settings take precedence. For container setups you 
 npm run build
 npm start   # applies migrations, then serves on port 3000
 ```
+
+By default the server only listens on `127.0.0.1`. To reach it from elsewhere, set `HOST=0.0.0.0` (with `APP_PASSWORD`) or put a reverse proxy on the same machine in front of it. On Windows, use WSL or run `npx next start -H 127.0.0.1` directly.
 
 Run a single instance: the background worker lives inside the server process, and SQLite expects one writer. Put it behind HTTPS (Caddy, nginx, Tailscale) if you open it to the network. Set `NEXT_PUBLIC_APP_URL` to the public address, set `APP_PASSWORD`, and update the redirect URIs in your Google and Microsoft apps.
 
