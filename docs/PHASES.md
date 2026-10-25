@@ -85,7 +85,7 @@ and a browser QA round shows Settings → connect → inbox working with the exi
 ## Phase 6 — QA
 
 - [x] **6.1** Browser QA rounds (cases in /tmp/evail-qa/CASES.md); fixed list markers, inline
-      links and the WAL startup race. — QA-FIX
+      links and the WAL startup race. — f9744fe
 
 ### Found while porting tests
 
