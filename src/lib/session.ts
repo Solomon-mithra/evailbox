@@ -43,21 +43,24 @@ export function checkPassword(candidate: string) {
   return equal(mac('password', candidate), mac('password', process.env.APP_PASSWORD ?? ''));
 }
 
-// ponytail: one in-memory counter for the whole instance (single owner, single process);
-// it resets on restart. Move it to SQLite if restarts become an attack vector.
-const failures = { count: 0, until: 0 };
+// ponytail: one in-memory counter for the whole instance (single owner; per-IP buckets are
+// spoofable behind proxies). The 60s cap bounds how long a stranger's guessing can lock the
+// owner out while still holding guessing to ~1/minute. Resets on restart.
+const failures = { count: 0, until: 0, last: 0 };
+const QUIET_RESET_MS = 15 * 60_000;
 /** Seconds until another password attempt is allowed; 0 when allowed. */
 export function loginWait(now = Date.now()) {
   return Math.max(0, Math.ceil((failures.until - now) / 1000));
 }
 export function recordLogin(success: boolean, now = Date.now()) {
-  if (success) {
+  if (success || now - failures.last > QUIET_RESET_MS) {
     failures.count = 0;
     failures.until = 0;
-    return;
   }
+  if (success) return;
   failures.count++;
-  // Five free attempts, then 1s, 2s, 4s… capped at 15 minutes.
+  failures.last = now;
+  // Five free attempts, then 1s, 2s, 4s… capped at one minute.
   if (failures.count > 5)
-    failures.until = now + Math.min(900_000, 1000 * 2 ** (failures.count - 6));
+    failures.until = now + Math.min(60_000, 1000 * 2 ** (failures.count - 6));
 }
