@@ -18,7 +18,7 @@ The source in `src/`, `prisma/schema.prisma` and `prisma/migrations/` is authori
 
 ## Identity and access
 
-One instance has one owner (`LOCAL_USER` in `src/lib/auth.ts`). With no `APP_PASSWORD`, anyone who can reach the server is the owner. With a password set, `src/proxy.ts` redirects pages to `/signin` and API handlers return 401 without a valid session cookie. The cookie MAC is keyed by the server secret and the password, so changing either signs everyone out. `APP_PASSWORD` must be at least 12 characters. Failed sign-ins back off globally, up to 15 minutes between attempts; existing sessions are unaffected and a restart clears the counter.
+One instance has one owner (`LOCAL_USER` in `src/lib/auth.ts`). With no `APP_PASSWORD`, anyone who can reach the server is the owner, so the proxy refuses to serve a non-loopback `NEXT_PUBLIC_APP_URL` without a password unless `ALLOW_NO_PASSWORD=1`. With a password set, `src/proxy.ts` redirects pages to `/signin` and API handlers return 401 without a valid session cookie. The cookie MAC is keyed by the server secret and the password, so changing either signs everyone out. `APP_PASSWORD` must be at least 12 characters. Failed sign-ins back off globally, up to 15 minutes between attempts; existing sessions are unaffected and a restart clears the counter.
 
 `allowedHost` in `src/lib/env.ts` admits only the configured `NEXT_PUBLIC_APP_URL` host, or loopback on the same port. The proxy refuses other `Host` headers for every route, and mutating requests must also send an allowed `Origin`. Together these block DNS-rebinding pages and cross-site requests against an unlocked local instance.
 

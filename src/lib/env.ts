@@ -37,3 +37,12 @@ export function allowedHost(host: string | null) {
   const port = app.port || (app.protocol === 'https:' ? '443' : '80');
   return ['localhost', '127.0.0.1', '[::1]'].some((name) => host === `${name}:${port}`);
 }
+
+/**
+ * Fail closed: an instance served on a non-loopback address must have APP_PASSWORD,
+ * unless the operator explicitly opts out (e.g. a private Tailscale network).
+ */
+export function unlockedPublicInstance() {
+  if (isDemo() || process.env.APP_PASSWORD || process.env.ALLOW_NO_PASSWORD === '1') return false;
+  return !['localhost', '127.0.0.1', '[::1]'].includes(new URL(appUrl()).hostname);
+}
