@@ -3,6 +3,6 @@ export async function register() {
     const { validateEnv } = await import('./lib/env');
     validateEnv();
     const { startBackgroundWork } = await import('./lib/background');
-    startBackgroundWork();
+    await startBackgroundWork();
   }
 }

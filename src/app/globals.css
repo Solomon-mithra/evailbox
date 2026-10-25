@@ -2603,6 +2603,8 @@ body [data-sonner-toaster][data-sonner-theme='light'] {
 }
 .key-steps {
   margin: 0;
+  /* Tailwind preflight removes list markers; these steps are a real sequence. */
+  list-style: decimal;
   padding-left: 1.25rem;
   display: grid;
   gap: 10px;
@@ -2681,4 +2683,16 @@ body [data-sonner-toaster][data-sonner-theme='light'] {
 .inbox-progress-note {
   font-size: 0.8125rem;
   color: var(--muted);
+}
+/* .text-link is a standalone flex link; inside sentences it must flow as text. Underlined so
+   the link is not marked by color alone. */
+.key-steps .text-link,
+.key-note .text-link,
+.inbox-progress-note .text-link {
+  display: inline;
+  font-size: inherit;
+  color: var(--forest);
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }

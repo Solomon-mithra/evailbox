@@ -78,18 +78,29 @@ and a browser QA round shows Settings → connect → inbox working with the exi
 
 ## Phase 5 — tests and docs
 
-- [ ] **5.1** Drop tests for removed features; port DB tests to SQLite; full suite green. — pending
-- [ ] **5.2** README (self-hosting, Google/Azure app registration), LICENSE, `.env.example`.
-      — pending
+- [x] **5.1** Drop tests for removed features; port DB tests to SQLite; full suite green. — 39a663b
+- [x] **5.2** README (self-hosting, Google/Azure app registration), LICENSE, `.env.example`.
+      — 1053ac4
 
 ## Phase 6 — QA
 
-- [ ] **6.1** Browser QA round; fix findings. — pending
+- [x] **6.1** Browser QA rounds (cases in /tmp/evail-qa/CASES.md); fixed list markers, inline
+      links and the WAL startup race. — QA-FIX
+
+### Found while porting tests
+
+- [x] **5.3** Restore the tag-scope triggers that were lost with the Postgres migrations: new tags
+      never checked existing mail. Manual checks now capture history atomically. — 39a663b
+- [x] **5.4** Security-review follow-ups: fail closed on a public URL without `APP_PASSWORD`, use a
+      12-character minimum, and keep the 15-minute backoff. — f7bf0e0, 1b44381
 
 ## Rounds
 
-| Round | Change under test | Pass | Notes |
-| ----- | ----------------- | ---- | ----- |
+| Round | Change under test | Pass            | Notes                                                                                                                        |
+| ----- | ----------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| tests | SQLite port       | 408/408 + burst | 2 initial failures were real regressions (lost triggers), fixed in 5.3                                                       |
+| QA 1  | browser C1–C14    | 13/14           | C4: step numbers hidden by Tailwind preflight; inline links broke sentences; WAL pragma raced startup ("database is locked") |
+| QA 2  | fixes for QA 1    | 14/14           | only the expected 401 from the wrong-password case; no lock errors                                                           |
 
 ## Open issues
 

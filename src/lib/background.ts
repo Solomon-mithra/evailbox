@@ -10,10 +10,14 @@ type State = { running: boolean; again: boolean; lastSync: number; timer?: NodeJ
 const g = globalThis as unknown as { evailboxWorker?: State };
 const state = (g.evailboxWorker ??= { running: false, again: false, lastSync: 0 });
 
-export function startBackgroundWork() {
+export async function startBackgroundWork() {
   if (isDemo() || state.timer) return;
   // WAL lets inbox reads proceed while the worker writes; the mode persists in the file.
-  void db.$queryRawUnsafe('PRAGMA journal_mode=WAL').catch(() => undefined);
+  // Awaited before any other query: switching modes needs the database to itself.
+  await db.$queryRawUnsafe('PRAGMA journal_mode=WAL').catch(() => {
+    console.warn(JSON.stringify({ event: 'sqlite_wal_unavailable' }));
+  });
+  if (state.timer) return;
   state.timer = setInterval(kickWork, TICK_MS);
   state.timer.unref?.();
   kickWork();
