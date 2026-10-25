@@ -1,36 +1,29 @@
 import 'server-only';
 import { z } from 'zod';
-import { authHeaders, requestJson, requiredEnv } from './http';
+import { authHeaders, requestJson } from './http';
 import type { Provider, TokenSet } from './types';
-import { requireOutlookConfiguration } from '../integrations';
+import { oauthClient } from '../app-settings';
 const scopes = {
   GMAIL: 'https://www.googleapis.com/auth/gmail.modify',
   OUTLOOK: 'offline_access Mail.ReadWrite Mail.Send User.Read',
 };
-function config(provider: Provider) {
+async function config(provider: Provider) {
+  const client = await oauthClient(provider);
   if (provider === 'GMAIL')
     return {
-      clientId: requiredEnv('NEXT_PUBLIC_GOOGLE_CLIENT_ID'),
-      secretName: 'GOOGLE_CLIENT_SECRET',
+      ...client,
       authorization: 'https://accounts.google.com/o/oauth2/v2/auth',
       token: 'https://oauth2.googleapis.com/token',
     };
-  requireOutlookConfiguration();
-  const tenant = process.env.MICROSOFT_TENANT_ID || 'common';
-  if (!/^[a-zA-Z0-9.-]+$/.test(tenant)) throw new Error('Invalid Microsoft tenant');
-  const base = `https://login.microsoftonline.com/${tenant}/oauth2/v2.0`;
-  return {
-    clientId: requiredEnv('NEXT_PUBLIC_MICROSOFT_CLIENT_ID'),
-    secretName: 'MICROSOFT_CLIENT_SECRET',
-    authorization: `${base}/authorize`,
-    token: `${base}/token`,
-  };
+  if (!/^[a-zA-Z0-9.-]+$/.test(client.tenant)) throw new Error('Invalid Microsoft tenant');
+  const base = `https://login.microsoftonline.com/${client.tenant}/oauth2/v2.0`;
+  return { ...client, authorization: `${base}/authorize`, token: `${base}/token` };
 }
-export function getAuthorizationUrl(
+export async function getAuthorizationUrl(
   provider: Provider,
   options: { state: string; codeChallenge: string; redirectUri: string },
-): string {
-  const settings = config(provider);
+): Promise<string> {
+  const settings = await config(provider);
   const url = new URL(settings.authorization);
   url.search = new URLSearchParams({
     client_id: settings.clientId,
@@ -52,14 +45,14 @@ const tokenSchema = z.object({
   expires_in: z.number().positive().finite(),
 });
 async function tokenRequest(provider: Provider, fields: Record<string, string>): Promise<TokenSet> {
-  const settings = config(provider);
+  const settings = await config(provider);
   const result = tokenSchema.parse(
     await requestJson(settings.token, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         client_id: settings.clientId,
-        client_secret: requiredEnv(settings.secretName),
+        client_secret: settings.clientSecret,
         ...fields,
       }).toString(),
     }),

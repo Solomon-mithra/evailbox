@@ -8,10 +8,9 @@ import { requestWork } from './work-queue';
 import { kickWork } from './background';
 import { db } from './db';
 import { appUrl } from './env';
+import { redirectUri } from './app-settings';
 import { ApiError } from './errors';
 import type { WorkspaceId } from './workspace-selection';
-const callback = (provider: Provider) =>
-  `${appUrl()}/api/accounts/${provider.toLowerCase()}/callback`;
 export async function beginConnection(
   provider: Provider,
   userId: string,
@@ -19,10 +18,10 @@ export async function beginConnection(
 ) {
   const verifier = randomBytes(32).toString('base64url');
   const state = createOAuthState(userId, provider, verifier, Date.now(), workspace);
-  const authorizationUrl = getAuthorizationUrl(provider, {
+  const authorizationUrl = await getAuthorizationUrl(provider, {
     state,
     codeChallenge: createHash('sha256').update(verifier).digest('base64url'),
-    redirectUri: callback(provider),
+    redirectUri: redirectUri(provider),
   });
   const jar = await cookies();
   jar.set(`jev_oauth_${provider}`, state, {
@@ -49,7 +48,7 @@ export async function finishConnection(provider: Provider, userId: string, url: 
   const tokens = await exchangeCode(provider, {
     code,
     codeVerifier: verifier,
-    redirectUri: callback(provider),
+    redirectUri: redirectUri(provider),
   });
   const identity = await getMailboxIdentity(provider, tokens.accessToken);
   const email = identity.email.toLowerCase();
@@ -82,7 +81,5 @@ export async function finishConnection(provider: Provider, userId: string, url: 
   });
   await requestWork(userId, { sync: true, workspace });
   kickWork();
-  return NextResponse.redirect(
-    new URL('/accounts?connected=1&workspace=' + workspace, appUrl()),
-  );
+  return NextResponse.redirect(new URL('/accounts?connected=1&workspace=' + workspace, appUrl()));
 }

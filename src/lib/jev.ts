@@ -3,6 +3,7 @@ import { experimental_evaluate as evaluate, type Experimental_EvaluationQuestion
 import { createGateway } from '@ai-sdk/gateway';
 import { z } from 'zod';
 import { boundedEmailInput, currentModelId } from './classification-version';
+import { jevApiKey } from './app-settings';
 
 export type EmailInput = { subject: string; sender: string; snippet: string; body: string | null };
 export type TagInput = { name: string; prompt: string; keywords: string[]; senders: string[] };
@@ -42,8 +43,8 @@ async function evaluateQuestions(
     throw new Error('Classification threshold must be greater than 50 and at most 100');
   if (!Number.isFinite(timeoutMs) || timeoutMs < 1)
     throw new Error('Classification timeout budget is exhausted or invalid');
-  const apiKey = process.env.JEV_API_KEY;
-  if (!apiKey) throw new Error('Missing configuration: JEV_API_KEY');
+  const apiKey = await jevApiKey();
+  if (!apiKey) throw new Error('Missing configuration: AI Gateway key');
   const baseURL = process.env.JEV_GATEWAY_URL || 'https://ai-gateway.vercel.sh/v4/ai';
   const url = new URL(baseURL);
   if (url.protocol !== 'https:' || url.username || url.password)

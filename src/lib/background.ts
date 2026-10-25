@@ -12,6 +12,8 @@ const state = (g.evailboxWorker ??= { running: false, again: false, lastSync: 0 
 
 export function startBackgroundWork() {
   if (isDemo() || state.timer) return;
+  // WAL lets inbox reads proceed while the worker writes; the mode persists in the file.
+  void db.$queryRawUnsafe('PRAGMA journal_mode=WAL').catch(() => undefined);
   state.timer = setInterval(kickWork, TICK_MS);
   state.timer.unref?.();
   kickWork();

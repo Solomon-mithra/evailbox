@@ -26,3 +26,14 @@ export function isDemo() {
 export function appUrl() {
   return (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000').replace(/\/$/, '');
 }
+/**
+ * DNS-rebinding guard: only the configured host, or loopback on the same port, may reach the app.
+ * Without it a hostile page that rebinds its domain to 127.0.0.1 could read an unlocked inbox.
+ */
+export function allowedHost(host: string | null) {
+  if (!host) return false;
+  const app = new URL(appUrl());
+  if (host === app.host) return true;
+  const port = app.port || (app.protocol === 'https:' ? '443' : '80');
+  return ['localhost', '127.0.0.1', '[::1]'].some((name) => host === `${name}:${port}`);
+}

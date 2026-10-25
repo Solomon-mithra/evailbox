@@ -1,10 +1,10 @@
 generator client {
   provider = "prisma-client-js"
 }
+// SQLite file; src/lib/db.ts and prisma.config.ts default DATABASE_URL to ./data/evailbox.db.
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
 }
 enum WorkspaceKind {
   PERSONAL
@@ -20,16 +20,9 @@ enum Provider {
   OUTLOOK
 }
 model User {
-  id String @id @db.Uuid
+  id String @id
   email String @unique
   displayName String @default("")
-  plan String @default("STARTER")
-  planSource String @default("preview")
-  requestedPlan String?
-  planGrantedAt DateTime?
-  monthlyUsage MonthlyUsage[]
-  billing BillingAccount?
-  billingUsage BillingUsage[]
   replyDrafts ReplyDraft[]
   lastBackgroundSyncAt DateTime?
   workRequested Boolean @default(false)
@@ -44,25 +37,23 @@ model User {
   emails Email[]
   classifications EmailClassification[]
   notificationPref NotificationPref?
-  subscriptions PushSubscription[]
-  digestHistory DigestHistory[]
   @@index([workRequested,workNotBefore,lastBackgroundSyncAt])
   @@map("users")
 }
 model Tag {
   workspace WorkspaceKind @default(PERSONAL)
   id String @id @default(cuid())
-  userId String @db.Uuid
+  userId String
   name String
   nameKey String
   description String @default("")
   prompt String
   priority Priority @default(MEDIUM)
-  keywords String[] @default([])
-  senders String[] @default([])
+  keywords Json @default("[]")
+  senders Json @default("[]")
   version Int @default(1)
-  matchFrom DateTime @default(now()) @db.Timestamp(6)
-  historyEmailIds String[] @default([])
+  matchFrom DateTime @default(now())
+  historyEmailIds Json @default("[]")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   user User @relation(fields:[userId],references:[id],onDelete:Cascade)
@@ -75,7 +66,7 @@ model Tag {
 model EmailAccount {
   workspace WorkspaceKind @default(PERSONAL)
   id String @id @default(cuid())
-  userId String @db.Uuid
+  userId String
   provider Provider
   email String
   accessToken String
@@ -92,7 +83,6 @@ model EmailAccount {
   createdAt DateTime @default(now())
   user User @relation(fields:[userId],references:[id],onDelete:Cascade)
   emails Email[]
-  mailboxSubscription MailboxSubscription?
   replyDrafts ReplyDraft[]
   @@unique([userId,workspace,provider,email])
   @@unique([id,userId])
@@ -102,7 +92,7 @@ model EmailAccount {
 model Email {
   workspace WorkspaceKind @default(PERSONAL)
   id String @id @default(cuid())
-  userId String @db.Uuid
+  userId String
   accountId String
   lastSeenAt DateTime @default(now())
   contentHash String @default("")
@@ -118,7 +108,7 @@ model Email {
   isRead Boolean @default(false)
   handled Boolean @default(false)
   webUrl String
-  createdAt DateTime @default(now()) @db.Timestamp(6)
+  createdAt DateTime @default(now())
   user User @relation(fields:[userId],references:[id],onDelete:Cascade)
   account EmailAccount @relation(fields:[accountId,userId,workspace],references:[id,userId,workspace],onDelete:Cascade)
   classifications EmailClassification[]
@@ -134,7 +124,7 @@ model Email {
 model EmailClassification {
   workspace WorkspaceKind @default(PERSONAL)
   id String @id @default(cuid())
-  userId String @db.Uuid
+  userId String
   emailId String
   tagId String
   tagVersion Int
@@ -144,7 +134,6 @@ model EmailClassification {
   confidence Float
   decision String
   reasoning String
-  notifiedAt DateTime?
   createdAt DateTime @default(now())
   user User @relation(fields:[userId],references:[id],onDelete:Cascade)
   email Email @relation(fields:[emailId,userId,workspace],references:[id,userId,workspace],onDelete:Cascade)
@@ -156,119 +145,20 @@ model EmailClassification {
 }
 model NotificationPref {
   id String @id @default(cuid())
-  userId String @unique @db.Uuid
-  browserPush Boolean @default(false)
-  dailyDigest Boolean @default(false)
-  digestTime String @default("09:00")
-  timezone String @default("UTC")
-  minConfidence Int @default(80)
+  userId String @unique
   refreshMinutes Int @default(5)
-  unsubscribeToken String @unique @default(uuid())
   user User @relation(fields:[userId],references:[id],onDelete:Cascade)
   @@map("notification_prefs")
 }
-model PushSubscription {
-  id String @id @default(cuid())
-  userId String @db.Uuid
-  endpoint String @unique
-  p256dh String
-  auth String
-  createdAt DateTime @default(now())
-  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
-  @@index([userId])
-  @@map("push_subscriptions")
-}
-model DigestHistory {
-  id String @id @default(cuid())
-  userId String @db.Uuid
-  localDate String
-  status String @default("pending")
-  leaseUntil DateTime
-  sentAt DateTime?
-  providerId String?
-  windowEnd DateTime @default(now())
-  payload Json?
-  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
-  @@unique([userId,localDate])
-  @@map("digest_history")
-}
 
-model MailboxSubscription {
-  accountId String @id
-  userId String @db.Uuid
-  workspace WorkspaceKind
-  provider Provider
-  providerSubscriptionId String?
-  providerMailboxId String?
-  resource String?
-  clientState String?
-  expiresAt DateTime?
-  watchHistoryId String?
-  status String @default("pending")
-  renewalRequested Boolean @default(true)
-  renewalRevision Int @default(0)
-  renewalLeaseId String?
-  renewalLeaseUntil DateTime?
-  retryAt DateTime @default(now())
-  lastError String?
-  updatedAt DateTime @updatedAt
-  account EmailAccount @relation(fields:[accountId,userId,workspace],references:[id,userId,workspace],onDelete:Cascade)
-  @@unique([accountId,userId,workspace])
-  @@index([providerSubscriptionId])
-  @@index([renewalRequested,retryAt,expiresAt])
-  @@map("mailbox_subscriptions")
-}
-
-model MonthlyUsage {
-  userId String @db.Uuid
-  month DateTime @db.Date
-  emails Int @default(0)
-  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
-  @@id([userId,month])
-  @@map("monthly_usage")
-}
 model ProcessingState {
   id String @id
   notBefore DateTime @default(now())
   @@map("processing_state")
 }
-model BillingAccount {
-  userId String @id @db.Uuid
-  trialStartedAt DateTime?
-  trialEndsAt DateTime?
-  stripeCustomerId String? @unique
-  stripeSubscriptionId String? @unique
-  stripePriceId String?
-  subscriptionPlan String?
-  subscriptionStatus String?
-  invoicePaid Boolean @default(false)
-  periodStart DateTime?
-  periodEnd DateTime?
-  cancelAtPeriodEnd Boolean @default(false)
-  checkoutSessionId String?
-  checkoutPlan String?
-  checkoutGeneration Int @default(0)
-  deletingAt DateTime?
-  updatedAt DateTime @default(now()) @updatedAt
-  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
-  @@map("billing_accounts")
-}
-model BillingUsage {
-  userId String @db.Uuid
-  periodStart DateTime
-  emails Int @default(0)
-  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
-  @@id([userId,periodStart])
-  @@map("billing_usage")
-}
-model StripeWebhookReceipt {
-  id String @id
-  receivedAt DateTime @default(now())
-  @@map("stripe_webhook_receipts")
-}
 model ReplyDraft {
   id String @id @default(cuid())
-  userId String @db.Uuid
+  userId String
   workspace WorkspaceKind
   accountId String
   emailId String
@@ -292,4 +182,17 @@ model ReplyDraft {
   @@unique([emailId,userId,workspace,accountId])
   @@index([userId,workspace,status,updatedAt])
   @@map("reply_drafts")
+}
+
+/** Single row (id "app"). Secrets are AES-256-GCM encrypted and never returned by the API. */
+model AppSettings {
+  id String @id @default("app")
+  googleClientId String @default("")
+  googleClientSecret String?
+  microsoftClientId String @default("")
+  microsoftClientSecret String?
+  microsoftTenantId String @default("common")
+  jevApiKey String?
+  updatedAt DateTime @updatedAt
+  @@map("app_settings")
 }

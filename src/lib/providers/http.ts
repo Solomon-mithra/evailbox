@@ -46,8 +46,3 @@ export async function requestJson(url: string | URL, init: RequestInit = {}): Pr
 export function authHeaders(token: string): Record<string, string> {
   return { Authorization: `Bearer ${token}` };
 }
-export function requiredEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`Missing configuration: ${name}`);
-  return value;
-}

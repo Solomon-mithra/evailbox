@@ -2,7 +2,14 @@ import { withAccountLock } from '@/lib/providers/credentials';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
-import { requireUser, supabaseServer, adminAuth } from '@/lib/auth';
+import { cookies } from 'next/headers';
+import { requireUser } from '@/lib/auth';
+import {
+  SESSION_COOKIE,
+  checkPassword,
+  createSessionToken,
+  passwordProtected,
+} from '@/lib/session';
 import { db } from '@/lib/db';
 import { route, ok, ApiError, jsonBody } from '@/lib/errors';
 import { tagSchema, preferencesSchema, classifySchema, idSchema } from '@/lib/validation';
@@ -16,8 +23,10 @@ import {
 import { getInbox, getInboxCounts } from '@/lib/inbox';
 import { beginConnection, finishConnection } from '@/lib/oauth';
 import { kickWork } from '@/lib/background';
+import { requestWork } from '@/lib/work-queue';
+import { appSettingsSchema, publicAppSettings, updateAppSettings } from '@/lib/app-settings';
 import { POST as queueSync } from '@/app/api/sync/route';
-import { isDemo } from '@/lib/env';
+import { appUrl, isDemo } from '@/lib/env';
 import { workspaceIds } from '@/lib/workspace-selection';
 import { emailContentResponse } from '@/lib/email-content';
 import { capturePendingTagHistory, tagMatchScope } from '@/lib/tag-scope';
@@ -34,33 +43,26 @@ async function dispatch(request: Request) {
   if (isDemo())
     throw new ApiError(503, 'DEMO_MODE', 'This action needs a configured live workspace.');
   if (path === 'auth/signin' && method === 'POST') {
-    const supabase = await supabaseServer();
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/callback`,
-        skipBrowserRedirect: true,
-      },
+    const { password } = z.object({ password: z.string().max(500) }).parse(await jsonBody(request));
+    if (!passwordProtected() || !(await checkPassword(password))) {
+      // ponytail: fixed delay, not a lockout; put a rate-limiting proxy in front if exposed publicly.
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      throw new ApiError(401, 'INVALID_PASSWORD', 'That password is not correct.');
+    }
+    const { token, maxAge } = await createSessionToken();
+    (await cookies()).set(SESSION_COOKIE, token, {
+      httpOnly: true,
+      secure: appUrl().startsWith('https:'),
+      sameSite: 'lax',
+      path: '/',
+      maxAge,
     });
-    if (error || !data.url)
-      throw new ApiError(502, 'AUTH_FAILED', 'Google sign-in is temporarily unavailable.');
-    return ok({ url: data.url });
-  }
-  if (path === 'auth/callback' && method === 'GET') {
-    const code = url.searchParams.get('code');
-    if (!code)
-      return NextResponse.redirect(new URL('/signin?error=oauth', process.env.NEXT_PUBLIC_APP_URL));
-    const supabase = await supabaseServer();
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    return NextResponse.redirect(
-      new URL(error ? '/signin?error=oauth' : '/callback', process.env.NEXT_PUBLIC_APP_URL),
-    );
+    return ok({ signedIn: true });
   }
   const user = await requireUser();
   if (path === 'auth/me' && method === 'GET') return ok(user);
   if (path === 'auth/signout' && method === 'POST') {
-    const { error } = await (await supabaseServer()).auth.signOut();
-    if (error) throw new ApiError(502, 'SIGNOUT_FAILED', 'Could not sign out.');
+    (await cookies()).delete(SESSION_COOKIE);
     return ok({ signedOut: true });
   }
   const workspace = z.enum(workspaceIds).parse(url.searchParams.get('workspace') ?? 'PERSONAL');
@@ -159,9 +161,15 @@ async function dispatch(request: Request) {
   if (/^accounts\/(gmail|outlook)\/(auth|callback)$/.test(path) && method === 'GET') {
     const [, provider, action] = path.split('/');
     const p = provider === 'gmail' ? 'GMAIL' : 'OUTLOOK';
-    return action === 'auth'
-      ? beginConnection(p, user.id, workspace)
-      : finishConnection(p, user.id, url);
+    if (action === 'callback') return finishConnection(p, user.id, url);
+    try {
+      return await beginConnection(p, user.id, workspace);
+    } catch (error) {
+      // Browser navigation: send the user to the missing keys instead of a JSON error.
+      if (error instanceof ApiError && error.code.endsWith('_NOT_CONFIGURED'))
+        return NextResponse.redirect(new URL(`/settings?setup=${provider}`, appUrl()));
+      throw error;
+    }
   }
   if (/^accounts\/[^/]+$/.test(path) && method === 'DELETE') {
     const id = idSchema.parse(path.split('/')[1]);
@@ -199,12 +207,13 @@ async function dispatch(request: Request) {
         await capturePendingTagHistory(tx, user.id, workspace, data.tagId);
       } else if (ids.length) {
         // Explicit reruns must not erase old matches that the worker is no longer allowed to check.
-        await tx.$executeRaw(Prisma.sql`DELETE FROM email_classifications c USING emails e,tags t
-          WHERE c."emailId"=e.id AND c."tagId"=t.id AND c."userId"=e."userId"
+        await tx.$executeRaw(Prisma.sql`DELETE FROM email_classifications WHERE id IN (
+          SELECT c.id FROM email_classifications c JOIN emails e ON c."emailId"=e.id JOIN tags t ON c."tagId"=t.id
+          WHERE c."userId"=e."userId"
             AND c.workspace=e.workspace AND t."userId"=e."userId" AND t.workspace=e.workspace
-            AND e."userId"=${user.id}::uuid AND e.workspace=${workspace}::"WorkspaceKind"
+            AND e."userId"=${user.id} AND e.workspace=${workspace}
             AND e.id IN (${Prisma.join(ids)}) AND ${tagMatchScope()}
-            ${data.tagId ? Prisma.sql`AND t.id=${data.tagId}` : Prisma.empty}`);
+            ${data.tagId ? Prisma.sql`AND t.id=${data.tagId}` : Prisma.empty})`);
       }
       await tx.user.update({
         where: { id: user.id },
@@ -254,17 +263,22 @@ async function dispatch(request: Request) {
       }),
     );
   }
+  if (path === 'app-settings' && method === 'GET') return ok(await publicAppSettings());
+  if (path === 'app-settings' && method === 'PATCH') {
+    const patch = appSettingsSchema.parse(await jsonBody(request));
+    const saved = await updateAppSettings(patch);
+    // A new AI key unblocks tagging for everything already imported.
+    if (patch.jevApiKey) {
+      await requestWork(user.id);
+      kickWork();
+    }
+    return ok(saved);
+  }
   if (path === 'user' && method === 'DELETE') {
     const { confirm } = z.object({ confirm: z.literal('DELETE') }).parse(await jsonBody(request));
     void confirm;
-    try {
-      const { error } = await adminAuth().deleteUser(user.id);
-      if (error) throw error;
-    } catch {
-      throw new ApiError(502, 'DELETE_FAILED', 'Account deletion could not finish. Try again.');
-    }
+    // Resets all mail data; OAuth keys in Settings are kept. The owner row is recreated on demand.
     await db.user.deleteMany({ where: { id: user.id } });
-    await (await supabaseServer()).auth.signOut();
     return ok({ deleted: true });
   }
   throw new ApiError(404, 'NOT_FOUND', 'Endpoint not found.');
