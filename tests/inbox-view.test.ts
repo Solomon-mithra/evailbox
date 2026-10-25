@@ -208,37 +208,3 @@ it('shows only the newly connecting account when another mailbox is established'
   expect(html).not.toContain('established@example.com');
   expect(html).not.toContain('Syncing…');
 });
-
-it('keeps an actionable billing link without showing finished initial progress', () => {
-  const query = mocks.query();
-  mocks.query.mockReturnValue({
-    ...query,
-    data: {
-      ...query.data,
-      processing: {
-        imported: 100,
-        tagged: 0,
-        remaining: 100,
-        importing: false,
-        paused: true,
-        billingBlocked: true,
-        accounts: [
-          {
-            id: 'a',
-            email: 'personal@example.com',
-            imported: 100,
-            tagged: 0,
-            remaining: 100,
-            importing: false,
-            initialSync: false,
-            syncing: false,
-          },
-        ],
-      },
-    },
-  });
-  const html = renderToStaticMarkup(React.createElement(InboxView));
-  expect(html).toContain('Manage plan');
-  expect(html).not.toContain('role="progressbar"');
-  expect(html).not.toContain('personal@example.com');
-});

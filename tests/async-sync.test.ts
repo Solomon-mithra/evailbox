@@ -3,25 +3,17 @@ const m = vi.hoisted(() => ({
   auth: vi.fn(),
   account: vi.fn(),
   request: vi.fn(),
-  publish: vi.fn(),
-  after: vi.fn(),
-  configured: vi.fn(),
-}));
-vi.mock('next/server', async (original) => ({
-  ...(await original<typeof import('next/server')>()),
-  after: m.after,
+  kick: vi.fn(),
 }));
 vi.mock('@/lib/auth', () => ({ requireUser: m.auth }));
 vi.mock('@/lib/db', () => ({ db: { emailAccount: { findFirst: m.account } } }));
 vi.mock('@/lib/work-queue', () => ({ requestWork: m.request }));
-vi.mock('@/lib/inngest/dispatch', () => ({ publishUserWork: m.publish }));
-vi.mock('@/lib/inngest/client', () => ({ backgroundConfigured: m.configured }));
+vi.mock('@/lib/background', () => ({ kickWork: m.kick }));
 import { POST } from '@/app/api/sync/route';
 beforeEach(() => {
   vi.resetAllMocks();
   process.env.NEXT_PUBLIC_APP_URL = 'http://localhost:3000';
   m.auth.mockResolvedValue({ id: 'u' });
-  m.configured.mockReturnValue(true);
 });
 function request(body = {}) {
   return new Request('http://localhost:3000/api/sync?workspace=WORK', {
@@ -30,7 +22,7 @@ function request(body = {}) {
     body: JSON.stringify(body),
   });
 }
-it('returns 202 after durable marking without waiting for dispatcher or worker', async () => {
+it('returns 202 after durable marking without waiting for the worker', async () => {
   const response = await POST(request());
   expect(response.status).toBe(202);
   expect(await response.json()).toMatchObject({ data: { queued: true, workerAvailable: true } });
@@ -39,10 +31,8 @@ it('returns 202 after durable marking without waiting for dispatcher or worker',
     workspace: 'WORK',
     accountId: undefined,
   });
-  expect(m.publish).not.toHaveBeenCalled();
-  expect(m.after).toHaveBeenCalledOnce();
-  await m.after.mock.calls[0][0]();
-  expect(m.publish).toHaveBeenCalledWith('u');
+  expect(m.kick).toHaveBeenCalledOnce();
+  expect(m.request.mock.invocationCallOrder[0]).toBeLessThan(m.kick.mock.invocationCallOrder[0]);
 });
 it('rejects another tenant/workspace account before marking work', async () => {
   m.account.mockResolvedValue(null);
@@ -53,5 +43,5 @@ it('rejects another tenant/workspace account before marking work', async () => {
 it('does not return queued success if durable persistence fails', async () => {
   m.request.mockRejectedValue(new Error('database down'));
   expect((await POST(request())).status).toBe(500);
-  expect(m.after).not.toHaveBeenCalled();
+  expect(m.kick).not.toHaveBeenCalled();
 });

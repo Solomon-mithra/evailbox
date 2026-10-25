@@ -11,6 +11,11 @@ async function row() {
   return db.appSettings.findUnique({ where: { id: 'app' } });
 }
 const reveal = (value: string | null | undefined) => (value ? decrypt(value) : '');
+// Template placeholders copied from old .env files must not count as real credentials.
+const env = (name: string) => {
+  const value = process.env[name]?.trim() ?? '';
+  return /replace-with|your-project|•/.test(value) ? '' : value;
+};
 
 export const redirectUri = (provider: Provider) =>
   `${appUrl()}/api/accounts/${provider.toLowerCase()}/callback`;
@@ -20,17 +25,15 @@ export async function oauthClient(provider: Provider) {
   const client =
     provider === 'GMAIL'
       ? {
-          clientId: settings?.googleClientId || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '',
-          clientSecret:
-            reveal(settings?.googleClientSecret) || process.env.GOOGLE_CLIENT_SECRET || '',
+          clientId: settings?.googleClientId || env('NEXT_PUBLIC_GOOGLE_CLIENT_ID') || '',
+          clientSecret: reveal(settings?.googleClientSecret) || env('GOOGLE_CLIENT_SECRET') || '',
           tenant: '',
         }
       : {
-          clientId:
-            settings?.microsoftClientId || process.env.NEXT_PUBLIC_MICROSOFT_CLIENT_ID || '',
+          clientId: settings?.microsoftClientId || env('NEXT_PUBLIC_MICROSOFT_CLIENT_ID') || '',
           clientSecret:
-            reveal(settings?.microsoftClientSecret) || process.env.MICROSOFT_CLIENT_SECRET || '',
-          tenant: settings?.microsoftTenantId || process.env.MICROSOFT_TENANT_ID || 'common',
+            reveal(settings?.microsoftClientSecret) || env('MICROSOFT_CLIENT_SECRET') || '',
+          tenant: settings?.microsoftTenantId || env('MICROSOFT_TENANT_ID') || 'common',
         };
   if (!client.clientId || !client.clientSecret)
     throw new ApiError(
@@ -42,7 +45,7 @@ export async function oauthClient(provider: Provider) {
 }
 
 export async function jevApiKey() {
-  return reveal((await row())?.jevApiKey) || process.env.JEV_API_KEY || '';
+  return reveal((await row())?.jevApiKey) || env('JEV_API_KEY') || '';
 }
 
 /** Never returns secrets: only whether one is stored. */

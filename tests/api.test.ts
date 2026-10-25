@@ -13,7 +13,6 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/auth', () => ({
   requireUser: mocks.requireUser,
-  supabaseServer: vi.fn(),
   adminAuth: vi.fn(),
 }));
 vi.mock('@/lib/db', () => ({
@@ -78,10 +77,6 @@ describe('API authorization and isolation', () => {
       where: { id: 'other', userId: 'tenant-a', workspace: 'PERSONAL' },
       data: { handled: true },
     });
-  });
-  it('protects cron endpoints', async () => {
-    process.env.CRON_SECRET = 'secret';
-    expect((await GET(request('cron/sync', 'GET'))).status).toBe(401);
   });
   it('never executes live actions in demo mode', async () => {
     process.env.APP_MODE = 'demo';

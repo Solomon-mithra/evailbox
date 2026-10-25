@@ -1,143 +1,153 @@
-import { beforeAll, afterAll, it, expect } from 'vitest';
-import { PGlite } from '@electric-sql/pglite';
-import { readFile } from 'node:fs/promises';
-const database = new PGlite();
+import { afterAll, beforeEach, expect, it } from 'vitest';
+import { closeTestDb, resetTestDb, testDb } from './helpers/sqlite';
+
 const alice = '11111111-1111-4111-8111-111111111111',
   bob = '22222222-2222-4222-8222-222222222222';
-beforeAll(async () => {
-  await database.exec(
-    `CREATE ROLE anon; CREATE ROLE authenticated; CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY); CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$; GRANT USAGE ON SCHEMA public,auth TO authenticated;`,
-  );
-  await database.exec(
-    await readFile('prisma/migrations/20260921000000_init/migration.sql', 'utf8'),
-  );
-  await database.query('INSERT INTO auth.users(id) VALUES ($1),($2)', [alice, bob]);
-  await database.query('INSERT INTO users(id,email) VALUES ($1,$2),($3,$4)', [
-    alice,
-    'alice@example.com',
-    bob,
-    'bob@example.com',
-  ]);
-  for (const [id, user] of [
+const mail = (id: string, userId: string, accountId: string, workspace = 'PERSONAL') => ({
+  id,
+  userId,
+  accountId,
+  workspace: workspace as 'PERSONAL' | 'WORK',
+  providerMessageId: id,
+  subject: 'private',
+  sender: 'a@example.com',
+  senderName: 'Alice',
+  snippet: 'sample',
+  receivedAt: new Date(),
+  webUrl: 'https://mail.google.com',
+});
+const classification = (
+  id: string,
+  userId: string,
+  emailId: string,
+  tagId: string,
+  workspace = 'PERSONAL',
+) => ({
+  id,
+  userId,
+  emailId,
+  tagId,
+  workspace: workspace as 'PERSONAL' | 'WORK',
+  tagVersion: 1,
+  matched: true,
+  confidence: 99,
+  decision: 'match',
+  reasoning: 'trace',
+});
+afterAll(closeTestDb);
+beforeEach(async () => {
+  await resetTestDb();
+  for (const [id, userId] of [
     ['a', alice],
     ['b', bob],
   ]) {
-    await database.query(
-      'INSERT INTO tags(id,"userId",name,"nameKey",prompt,priority,"updatedAt") VALUES ($1,$2,$3,$3,$4,$5,now())',
-      [id, user, 'private-' + id, 'Match only my private messages', 'HIGH'],
-    );
-    await database.query(
-      'INSERT INTO email_accounts(id,"userId",provider,email,"accessToken","expiresAt") VALUES ($1,$2,$3,$4,$5,now())',
-      [id, user, 'GMAIL', id + '@example.com', 'encrypted'],
-    );
+    await testDb.user.create({ data: { id: userId, email: `${id}@example.com` } });
+    await testDb.tag.create({
+      data: { id, userId, name: `private-${id}`, nameKey: `private-${id}`, prompt: 'Match mine' },
+    });
+    await testDb.emailAccount.create({
+      data: {
+        id,
+        userId,
+        provider: 'GMAIL',
+        email: `${id}@example.com`,
+        accessToken: 'encrypted',
+        expiresAt: new Date(),
+      },
+    });
   }
-  await database.query(
-    'INSERT INTO emails(id,"userId","accountId","providerMessageId",subject,sender,"senderName",snippet,"receivedAt","webUrl") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,now(),$9)',
-    [
-      'email-a',
-      alice,
-      'a',
-      'provider-a',
-      'private',
-      'a@example.com',
-      'Alice',
-      'sample',
-      'https://mail.google.com',
-    ],
-  );
-  await database.exec(
-    await readFile('prisma/migrations/20260922000000_workspaces/migration.sql', 'utf8'),
-  );
-  await database.exec(
-    await readFile('prisma/migrations/20260925000000_inbox_read_indexes/migration.sql', 'utf8'),
-  );
+  await testDb.email.create({ data: mail('email-a', alice, 'a') });
+  await testDb.emailClassification.create({
+    data: classification('c-a', alice, 'email-a', 'a'),
+  });
+  await testDb.replyDraft.create({
+    data: {
+      userId: alice,
+      workspace: 'PERSONAL',
+      accountId: 'a',
+      emailId: 'email-a',
+      rfcMessageId: '<d@example.com>',
+    },
+  });
 }, 30000);
-afterAll(() => database.close());
-it('applies the complete migration with RLS on all application tables', async () => {
-  const { rows } = await database.query<{ relname: string; relrowsecurity: boolean }>(
-    "SELECT relname,relrowsecurity FROM pg_class WHERE relnamespace='public'::regnamespace AND relname IN ('users','tags','email_accounts','emails','email_classifications','notification_prefs','push_subscriptions','digest_history')",
-  );
-  expect(rows).toHaveLength(8);
-  expect(rows.every((r) => r.relrowsecurity)).toBe(true);
+
+it('applies the complete migration, including app_settings and the workspace indexes', async () => {
+  const objects = await testDb.$queryRaw<{ name: string; type: string }[]>`
+    SELECT name,type FROM sqlite_master WHERE name NOT LIKE '_prisma%' AND name NOT LIKE 'sqlite_%'`;
+  const names = new Set(objects.map((o) => o.name));
+  for (const table of [
+    'users',
+    'tags',
+    'email_accounts',
+    'emails',
+    'email_classifications',
+    'notification_prefs',
+    'reply_drafts',
+    'processing_state',
+    'app_settings',
+  ])
+    expect(names.has(table), table).toBe(true);
+  for (const index of [
+    'emails_inbox_cursor_idx',
+    'emails_account_cursor_idx',
+    'classifications_workspace_tag_idx',
+  ])
+    expect(names.has(index), index).toBe(true);
+  expect(await testDb.appSettings.count()).toBe(0);
+  await testDb.appSettings.create({ data: {} });
+  expect(await testDb.appSettings.findUniqueOrThrow({ where: { id: 'app' } })).toMatchObject({
+    googleClientId: '',
+    googleClientSecret: null,
+    microsoftTenantId: 'common',
+    jevApiKey: null,
+  });
 });
-it('isolates direct authenticated tag reads by JWT subject', async () => {
-  await database.exec(`SET ROLE authenticated; SET request.jwt.claim.sub='${alice}'`);
-  try {
-    const { rows } = await database.query<{ id: string }>('SELECT id FROM tags');
-    expect(rows.map((r) => r.id)).toEqual(['a']);
-    await expect(database.query('SELECT "accessToken" FROM email_accounts')).rejects.toThrow(
-      /permission denied/,
-    );
-  } finally {
-    await database.exec('RESET ROLE');
-  }
+it('stores no message body: emails has no body column', async () => {
+  const columns = await testDb.$queryRaw<
+    { name: string }[]
+  >`SELECT name FROM pragma_table_info('emails')`;
+  expect(columns.length).toBeGreaterThan(5);
+  expect(columns.map((c) => c.name)).not.toContain('body');
+});
+it('cascades deleting the user to accounts, emails, tags, classifications and drafts', async () => {
+  await testDb.user.delete({ where: { id: alice } });
+  expect(await testDb.emailAccount.findMany({ where: { userId: alice } })).toHaveLength(0);
+  expect(await testDb.email.findMany({ where: { userId: alice } })).toHaveLength(0);
+  expect(await testDb.tag.findMany({ where: { userId: alice } })).toHaveLength(0);
+  expect(await testDb.emailClassification.findMany({ where: { userId: alice } })).toHaveLength(0);
+  expect(await testDb.replyDraft.findMany({ where: { userId: alice } })).toHaveLength(0);
+  expect(await testDb.emailAccount.count({ where: { userId: bob } })).toBe(1);
 });
 it('rejects cross-tenant foreign keys even on privileged writes', async () => {
   await expect(
-    database.query(
-      'INSERT INTO email_classifications(id,"userId","emailId","tagId","tagVersion",matched,confidence,decision,reasoning) VALUES ($1,$2,$3,$4,1,true,99,$5,$6)',
-      ['bad', alice, 'email-a', 'b', 'match', 'trace'],
-    ),
-  ).rejects.toThrow(/foreign key/);
+    testDb.emailClassification.create({ data: classification('bad', alice, 'email-a', 'b') }),
+  ).rejects.toThrow(/foreign key/i);
 });
-it('preserves existing mail in Personal and rejects cross-workspace classification', async () => {
-  expect(
-    (
-      await database.query<{ workspace: string }>('SELECT workspace FROM emails WHERE id=$1', [
-        'email-a',
-      ])
-    ).rows[0].workspace,
-  ).toBe('PERSONAL');
-  await database.query(
-    'INSERT INTO tags(id,"userId",workspace,name,"nameKey",prompt,priority,"updatedAt") VALUES ($1,$2,$3,$4,$4,$5,$6,now())',
-    ['work-tag', alice, 'WORK', 'private-a', 'Match work messages only', 'HIGH'],
+it('rejects cross-workspace classification and an email in another workspace than its account', async () => {
+  expect((await testDb.email.findUniqueOrThrow({ where: { id: 'email-a' } })).workspace).toBe(
+    'PERSONAL',
   );
+  await testDb.tag.create({
+    data: {
+      id: 'work-tag',
+      userId: alice,
+      workspace: 'WORK',
+      name: 'private-a',
+      nameKey: 'private-a',
+      prompt: 'Work only',
+    },
+  });
   await expect(
-    database.query(
-      'INSERT INTO email_classifications(id,"userId",workspace,"emailId","tagId","tagVersion",matched,confidence,decision,reasoning) VALUES ($1,$2,$3,$4,$5,1,true,99,$6,$7)',
-      ['cross-workspace', alice, 'PERSONAL', 'email-a', 'work-tag', 'match', 'trace'],
-    ),
-  ).rejects.toThrow(/foreign key/);
+    testDb.emailClassification.create({
+      data: classification('cross-workspace', alice, 'email-a', 'work-tag', 'PERSONAL'),
+    }),
+  ).rejects.toThrow(/foreign key/i);
   await expect(
-    database.query(
-      'INSERT INTO emails(id,"userId",workspace,"accountId","providerMessageId",subject,sender,"senderName",snippet,"receivedAt","webUrl") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,now(),$10)',
-      [
-        'cross-account',
-        alice,
-        'WORK',
-        'a',
-        'other',
-        'work',
-        'a@example.com',
-        'Alice',
-        'sample',
-        'https://mail.google.com',
-      ],
-    ),
-  ).rejects.toThrow(/foreign key/);
+    testDb.email.create({ data: mail('cross-account', alice, 'a', 'WORK') }),
+  ).rejects.toThrow(/foreign key/i);
 });
 it('cascades account disconnect only to that account’s email data', async () => {
-  await database.query('DELETE FROM email_accounts WHERE id=$1 AND "userId"=$2', ['a', alice]);
-  expect(
-    (await database.query('SELECT id FROM emails WHERE id=$1', ['email-a'])).rows,
-  ).toHaveLength(0);
-  expect(
-    (await database.query('SELECT id FROM email_accounts WHERE id=$1', ['b'])).rows,
-  ).toHaveLength(1);
-});
-
-it('creates workspace keyset, account and classification read indexes', async () => {
-  const { rows } = await database.query<{ indexname: string; indexdef: string }>(
-    "SELECT indexname,indexdef FROM pg_indexes WHERE schemaname='public'",
-  );
-  const indexes = Object.fromEntries(rows.map((r) => [r.indexname, r.indexdef]));
-  expect(indexes.emails_inbox_cursor_idx).toContain(
-    '("userId", workspace, "receivedAt" DESC, id DESC)',
-  );
-  expect(indexes.emails_account_cursor_idx).toContain(
-    '("userId", workspace, "accountId", "receivedAt" DESC, id DESC)',
-  );
-  expect(indexes.classifications_workspace_tag_idx).toContain(
-    '("userId", workspace, "tagId", matched, "tagVersion", "emailId")',
-  );
+  await testDb.emailAccount.delete({ where: { id: 'a' } });
+  expect(await testDb.email.findMany({ where: { id: 'email-a' } })).toHaveLength(0);
+  expect(await testDb.emailAccount.findMany({ where: { id: 'b' } })).toHaveLength(1);
 });

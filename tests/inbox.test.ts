@@ -1,82 +1,95 @@
-import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
-import { PGlite } from '@electric-sql/pglite';
-import { readFile } from 'node:fs/promises';
+import { afterAll, afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { Prisma } from '@prisma/client';
-const mocks = vi.hoisted(() => ({ query: vi.fn() }));
-vi.mock('@/lib/db', () => ({ db: { $queryRaw: mocks.query } }));
+import { closeTestDb, resetTestDb, testDb } from './helpers/sqlite';
+vi.mock('@/lib/db', async () => ({ db: (await import('./helpers/sqlite')).testDb }));
 import { getInbox, getInboxCounts } from '@/lib/inbox';
 import { currentModelVersion } from '@/lib/classification-version';
-const database = new PGlite();
 const user = { id: '11111111-1111-4111-8111-111111111111', email: 'a@example.com' };
 const other = { id: '22222222-2222-4222-8222-222222222222', email: 'b@example.com' };
-beforeAll(async () => {
-  process.env.ENCRYPTION_SECRET_KEY = 'a'.repeat(64);
-  await database.exec(
-    `CREATE ROLE anon; CREATE ROLE authenticated; CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY); CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$; GRANT USAGE ON SCHEMA public,auth TO authenticated;`,
-  );
-  for (const path of [
-    '20260921000000_init',
-    '20260922000000_workspaces',
-    '20260925030000_classification_freshness',
-    '20260925040000_plan_preview',
-    '20260927000000_stripe_billing',
-    '20260928000000_tag_history_limit',
-  ])
-    await database.exec(await readFile(`prisma/migrations/${path}/migration.sql`, 'utf8'));
-  await database.query('INSERT INTO auth.users(id) VALUES ($1),($2)', [user.id, other.id]);
-  await database.query('INSERT INTO users(id,email) VALUES ($1,$2),($3,$4)', [
-    user.id,
-    user.email,
-    other.id,
-    other.email,
-  ]);
-  for (const [id, uid, workspace] of [
+const receivedAt = new Date('2026-09-25T10:00:00Z');
+afterAll(closeTestDb);
+afterEach(() => vi.restoreAllMocks());
+// Every test starts from the same fixture, so mutations never leak between tests.
+beforeEach(async () => {
+  await resetTestDb();
+  await testDb.user.createMany({ data: [user, other] });
+  const rows = [
     ['a', user.id, 'PERSONAL'],
     ['w', user.id, 'WORK'],
     ['b', other.id, 'PERSONAL'],
-  ]) {
-    await database.query(
-      'INSERT INTO email_accounts(id,"userId",workspace,provider,email,"accessToken","expiresAt") VALUES ($1,$2,$3,\'GMAIL\',$4,\'secret\',now())',
-      [id, uid, workspace, `${id}@example.com`],
+  ] as const;
+  for (const [id, userId, workspace] of rows) {
+    await testDb.emailAccount.create({
+      data: {
+        id,
+        userId,
+        workspace,
+        provider: 'GMAIL',
+        email: `${id}@example.com`,
+        accessToken: 'secret',
+        expiresAt: new Date(),
+      },
+    });
+    await testDb.tag.create({
+      data: {
+        id,
+        userId,
+        workspace,
+        name: id,
+        nameKey: id,
+        prompt: 'private rule',
+        priority: 'HIGH',
+        version: 2,
+      },
+    });
+    const emails = Array.from(
+      { length: id === 'a' ? 55 : 1 },
+      (_, i) => `${id}-${String(i).padStart(3, '0')}`,
     );
-    await database.query(
-      'INSERT INTO tags(id,"userId",workspace,name,"nameKey",prompt,priority,version,"updatedAt") VALUES ($1,$2,$3,$1,$1,\'private rule\',\'HIGH\',2,now())',
-      [id, uid, workspace],
-    );
-    for (let i = 0; i < (id === 'a' ? 55 : 1); i++) {
-      const eid = `${id}-${String(i).padStart(3, '0')}`;
-      await database.query(
-        "INSERT INTO emails(id,\"userId\",workspace,\"accountId\",\"providerMessageId\",subject,sender,\"senderName\",snippet,body,\"receivedAt\",\"webUrl\") VALUES ($1,$2,$3,$4,$1,'Meeting','sender@example.com','Sender','Summary','SECRET FULL BODY','2026-09-25T10:00:00Z','https://mail.google.com')",
-        [eid, uid, workspace, id],
-      );
-      await database.query(
-        'INSERT INTO email_classifications(id,"userId",workspace,"emailId","tagId","tagVersion",matched,confidence,decision,reasoning) VALUES ($1,$2,$3,$1,$4,$5,true,90,\'match\',\'trace\')',
-        [eid, uid, workspace, id, i === 0 ? 1 : 2],
-      );
-    }
+    await testDb.email.createMany({
+      data: emails.map((eid) => ({
+        id: eid,
+        userId,
+        workspace,
+        accountId: id,
+        providerMessageId: eid,
+        subject: 'Meeting',
+        sender: 'sender@example.com',
+        senderName: 'Sender',
+        snippet: 'Summary',
+        contentHash: 'current-hash',
+        receivedAt,
+        webUrl: 'https://mail.google.com',
+      })),
+    });
+    await testDb.emailClassification.createMany({
+      data: emails.map((eid, i) => ({
+        id: eid,
+        userId,
+        workspace,
+        emailId: eid,
+        tagId: id,
+        tagVersion: i === 0 ? 1 : 2,
+        contentHash: 'current-hash',
+        modelVersion: currentModelVersion(),
+        matched: true,
+        confidence: 90,
+        decision: 'match',
+        reasoning: 'trace',
+      })),
+    });
   }
-  await database.query(`UPDATE emails SET "contentHash"='current-hash'`);
-  await database.query(
-    `UPDATE email_classifications SET "contentHash"='current-hash',"modelVersion"=$1`,
-    [currentModelVersion()],
-  );
 }, 30000);
-afterAll(() => database.close());
-afterEach(() => vi.unstubAllEnvs());
-beforeEach(() => {
-  mocks.query.mockReset();
-  mocks.query.mockImplementation(
-    async (sql: Prisma.Sql) => (await database.query(sql.text, sql.values)).rows,
-  );
-});
+const raw = () => vi.spyOn(testDb, '$queryRaw');
 it('projects body-free summaries and paginates equal timestamps without duplicates or offset scans', async () => {
+  const query = raw();
   const first = await getInbox(user, new URLSearchParams());
   expect(first.emails).toHaveLength(50);
   expect(first.emails[0].id).toBe('a-054');
   expect(first.nextCursor).toEqual(expect.any(String));
-  expect(mocks.query).toHaveBeenCalledOnce();
-  const sql = mocks.query.mock.calls[0][0] as Prisma.Sql;
-  expect(sql.text).not.toMatch(/\bbody\b|\boffset\b|e\.\*/i);
+  expect(query).toHaveBeenCalledOnce();
+  const sql = query.mock.calls[0][0] as unknown as Prisma.Sql;
+  expect(sql.sql).not.toMatch(/\bbody\b|\boffset\b|e\.\*/i);
   expect(first.emails[0]).not.toHaveProperty('body');
   expect(first.emails[0]).not.toHaveProperty('userId');
   expect(first.emails[0].classifications[0].tag.version).toBe(2);
@@ -102,7 +115,7 @@ it('applies user/workspace/account/search/date and current tag filters inside th
 });
 it('rejects malformed, tampered and cross-scope cursors before database reads', async () => {
   const first = await getInbox(user, new URLSearchParams());
-  mocks.query.mockClear();
+  const query = raw();
   for (const [who, params] of [
     [user, { cursor: 'invalid' }],
     [user, { cursor: first.nextCursor! + 'x' }],
@@ -111,7 +124,7 @@ it('rejects malformed, tampered and cross-scope cursors before database reads', 
     [user, { cursor: first.nextCursor!, search: 'new' }],
   ] as const)
     await expect(getInbox(who, new URLSearchParams(params))).rejects.toMatchObject({ status: 400 });
-  expect(mocks.query).not.toHaveBeenCalled();
+  expect(query).not.toHaveBeenCalled();
 });
 it('counts only current matching classifications with the same tenant and workspace filters', async () => {
   const counts = await getInboxCounts(user, new URLSearchParams());
@@ -122,18 +135,25 @@ it('counts only current matching classifications with the same tenant and worksp
 });
 
 it('keeps a cursor usable when its anchor is deleted and newer mail arrives', async () => {
-  await database.exec('BEGIN');
-  try {
+  {
     const first = await getInbox(user, new URLSearchParams());
-    await database.query('DELETE FROM emails WHERE id=$1', ['a-005']);
-    await database.query(
-      "INSERT INTO emails(id,\"userId\",\"accountId\",\"providerMessageId\",subject,sender,\"senderName\",snippet,\"receivedAt\",\"webUrl\") VALUES ('a-new',$1,'a','new','New','a@example.com','A','New','2026-09-26T00:00:00Z','https://mail.google.com')",
-      [user.id],
-    );
+    await testDb.email.delete({ where: { id: 'a-005' } });
+    await testDb.email.create({
+      data: {
+        id: 'a-new',
+        userId: user.id,
+        accountId: 'a',
+        providerMessageId: 'new',
+        subject: 'New',
+        sender: 'a@example.com',
+        senderName: 'A',
+        snippet: 'New',
+        receivedAt: new Date('2026-09-26T00:00:00Z'),
+        webUrl: 'https://mail.google.com',
+      },
+    });
     const next = await getInbox(user, new URLSearchParams({ cursor: first.nextCursor! }));
     expect(next.emails.map((e) => e.id)).toEqual(['a-004', 'a-003', 'a-002', 'a-001', 'a-000']);
-  } finally {
-    await database.exec('ROLLBACK');
   }
 });
 it('applies date windows and treats wildcard characters as literal search input', async () => {
@@ -147,11 +167,17 @@ it('applies date windows and treats wildcard characters as literal search input'
 });
 
 it('hides retained non-inbox rows and stale content/model/legacy decisions from rows, filters and counts', async () => {
-  await database.exec('BEGIN');
-  try {
-    await database.exec(
-      `UPDATE email_classifications SET "contentHash"='old' WHERE "emailId"='a-054'; UPDATE email_classifications SET "modelVersion"='old' WHERE "emailId"='a-053'; UPDATE emails SET "inInbox"=false WHERE id='a-052'; UPDATE emails SET "contentHash"='' WHERE id='a-051';`,
-    );
+  {
+    await testDb.emailClassification.updateMany({
+      where: { emailId: 'a-054' },
+      data: { contentHash: 'old' },
+    });
+    await testDb.emailClassification.updateMany({
+      where: { emailId: 'a-053' },
+      data: { modelVersion: 'old' },
+    });
+    await testDb.email.update({ where: { id: 'a-052' }, data: { inInbox: false } });
+    await testDb.email.update({ where: { id: 'a-051' }, data: { contentHash: '' } });
     const page = await getInbox(user, new URLSearchParams());
     expect(page.emails.find((e) => e.id === 'a-054')?.classifications).toEqual([]);
     expect(page.emails.find((e) => e.id === 'a-053')?.classifications).toEqual([]);
@@ -163,8 +189,6 @@ it('hides retained non-inbox rows and stale content/model/legacy decisions from 
       tagCounts: { a: 50 },
     });
     expect((await getInbox(user, new URLSearchParams({ tag: 'a' }))).emails).toHaveLength(50);
-  } finally {
-    await database.exec('ROLLBACK');
   }
 });
 it('invalidates current classifications when configured model revision changes', async () => {
@@ -203,13 +227,18 @@ it('reports email progress independently of filters, using all current tag decis
 });
 
 it('reports separate account progress including an empty newly connected mailbox', async () => {
-  await database.exec('BEGIN');
-  try {
-    await database.query(
-      `INSERT INTO email_accounts(id,"userId",workspace,provider,email,"accessToken","expiresAt") VALUES ('new',$1,'PERSONAL','GMAIL','new@example.com','secret',now())`,
-      [user.id],
-    );
-    await database.exec(`UPDATE email_accounts SET "syncRequested"=false WHERE id='a'`);
+  {
+    await testDb.emailAccount.create({
+      data: {
+        id: 'new',
+        userId: user.id,
+        provider: 'GMAIL',
+        email: 'new@example.com',
+        accessToken: 'secret',
+        expiresAt: new Date(),
+      },
+    });
+    await testDb.emailAccount.update({ where: { id: 'a' }, data: { syncRequested: false } });
     const counts = await getInboxCounts(
       user,
       new URLSearchParams({ account: 'new', search: 'no-match' }),
@@ -243,27 +272,15 @@ it('reports separate account progress including an empty newly connected mailbox
         importing: true,
       },
     ]);
-  } finally {
-    await database.exec('ROLLBACK');
   }
 });
 
-it('reports a billing pause without changing saved inbox access', async () => {
-  vi.stubEnv('APP_MODE', 'live');
-  vi.stubEnv('BILLING_ENABLED', 'true');
-  expect(await getInboxCounts(user, new URLSearchParams())).toMatchObject({
-    processing: { paused: true, billingBlocked: true },
-  });
-  expect((await getInbox(user, new URLSearchParams())).emails.length).toBeGreaterThan(0);
-});
-
 it('separates initial import, active mailbox sync and pending AI work across both providers', async () => {
-  await database.exec('BEGIN');
-  try {
-    await database.query(
-      `UPDATE users SET "workRequested"=true,"workNotBefore"=CURRENT_TIMESTAMP+interval '1 hour' WHERE id=$1`,
-      [user.id],
-    );
+  {
+    await testDb.user.update({
+      where: { id: user.id },
+      data: { workRequested: true, workNotBefore: new Date(Date.now() + 3_600_000) },
+    });
     const cases = [
       { cursor: null, synced: false, initialSync: true },
       {
@@ -305,10 +322,16 @@ it('separates initial import, active mailbox sync and pending AI work across bot
         typeof item.cursor === 'string'
           ? item.cursor
           : item.cursor && JSON.stringify({ ...item.cursor, pageToken: 'PRIVATE-CURSOR-TOKEN' });
-      await database.query(
-        `UPDATE email_accounts SET cursor=$1,"lastSync"=$2,"syncRequested"=true,"syncLeaseUntil"=null,"syncLeaseId"=null WHERE id='a'`,
-        [cursor, item.synced ? new Date().toISOString() : null],
-      );
+      await testDb.emailAccount.update({
+        where: { id: 'a' },
+        data: {
+          cursor,
+          lastSync: item.synced ? new Date() : null,
+          syncRequested: true,
+          syncLeaseUntil: null,
+          syncLeaseId: null,
+        },
+      });
       const counts = await getInboxCounts(user, new URLSearchParams());
       expect(counts.processing?.accounts?.[0]).toMatchObject({
         initialSync: item.initialSync,
@@ -316,19 +339,19 @@ it('separates initial import, active mailbox sync and pending AI work across bot
       });
       expect(JSON.stringify(counts)).not.toMatch(/PRIVATE-CURSOR-TOKEN|pageToken|cursor|hasSynced/);
     }
-    await database.exec(
-      `UPDATE email_accounts SET "syncLeaseId"='active',"syncLeaseUntil"=CURRENT_TIMESTAMP+interval '1 minute' WHERE id='a'`,
-    );
+    await testDb.emailAccount.update({
+      where: { id: 'a' },
+      data: { syncLeaseId: 'active', syncLeaseUntil: new Date(Date.now() + 60_000) },
+    });
     expect(
       (await getInboxCounts(user, new URLSearchParams())).processing?.accounts?.[0].syncing,
     ).toBe(true);
-    await database.exec(
-      `UPDATE email_accounts SET "syncLeaseUntil"=CURRENT_TIMESTAMP-interval '1 minute' WHERE id='a'`,
-    );
+    await testDb.emailAccount.update({
+      where: { id: 'a' },
+      data: { syncLeaseUntil: new Date(Date.now() - 60_000) },
+    });
     expect(
       (await getInboxCounts(user, new URLSearchParams())).processing?.accounts?.[0].syncing,
     ).toBe(false);
-  } finally {
-    await database.exec('ROLLBACK');
   }
 });

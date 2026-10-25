@@ -1,108 +1,92 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useTempCwd } from './helpers/cwd';
 
-const auth = vi.hoisted(() => ({ createClient: vi.fn(), getUser: vi.fn() }));
-vi.mock('@supabase/ssr', () => ({ createServerClient: auth.createClient }));
-import { proxy } from '../src/proxy';
-
-beforeEach(() => {
-  vi.resetAllMocks();
+let proxy: typeof import('../src/proxy').proxy;
+let session: typeof import('../src/lib/session');
+let cleanup: () => void;
+beforeEach(async () => {
+  ({ cleanup } = useTempCwd());
+  for (const name of [
+    'ENCRYPTION_SECRET_KEY',
+    'APP_PASSWORD',
+    'NEXT_PUBLIC_APP_URL',
+    'ALLOW_NO_PASSWORD',
+  ])
+    vi.stubEnv(name, undefined);
   vi.stubEnv('APP_MODE', 'live');
-  auth.getUser.mockResolvedValue({ data: { user: null } });
-  auth.createClient.mockReturnValue({ auth: { getUser: auth.getUser } });
+  vi.resetModules();
+  ({ proxy } = await import('../src/proxy'));
+  session = await import('../src/lib/session');
 });
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+  cleanup();
+});
 
-const request = (path: string) => new NextRequest(`https://app.example${path}`);
-
-describe('public homepage and inbox routing', () => {
-  it('serves the landing page without initializing authentication', async () => {
-    const response = await proxy(request('/?utm_source=launch'));
-    expect(response.headers.get('x-middleware-next')).toBe('1');
-    expect(auth.createClient).not.toHaveBeenCalled();
+const request = (path: string, host = 'localhost:3000', cookie?: string) =>
+  new NextRequest(`http://${host}${path}`, {
+    headers: { host, ...(cookie ? { cookie } : {}) },
   });
+const passes = (response: Response) => response.headers.get('x-middleware-next') === '1';
+const redirectsTo = (response: Response) =>
+  new URL(response.headers.get('location') ?? '').pathname;
 
-  it.each(['live', 'demo'])('preserves old email links in %s mode', async (mode) => {
-    vi.stubEnv('APP_MODE', mode);
-    const response = await proxy(request('/?workspace=WORK&email=mail%2F123'));
-    expect(response.headers.get('location')).toBe(
-      'https://app.example/inbox?workspace=WORK&email=mail%2F123',
-    );
-    expect(auth.createClient).not.toHaveBeenCalled();
+describe('host allow-list (DNS-rebinding guard)', () => {
+  it.each(['/inbox', '/api/health'])('rejects an unknown host on %s with 421', async (path) => {
+    expect((await proxy(request(path, 'evil.example:3000'))).status).toBe(421);
   });
-
-  it('preserves old workspace bookmarks', async () => {
-    const response = await proxy(request('/?workspace=PERSONAL'));
-    expect(response.headers.get('location')).toBe('https://app.example/inbox?workspace=PERSONAL');
-  });
-
-  it.each(['/inbox', '/tags', '/accounts', '/settings'])(
-    'protects %s in live mode',
-    async (path) => {
-      const response = await proxy(request(path));
-      expect(response.headers.get('location')).toBe('https://app.example/signin');
-      expect(auth.getUser).toHaveBeenCalledOnce();
+  it.each(['localhost:3000', '127.0.0.1:3000', '[::1]:3000'])(
+    'allows loopback %s',
+    async (host) => {
+      expect(passes(await proxy(request('/inbox', host)))).toBe(true);
     },
   );
-
-  it('lets authenticated users enter the inbox', async () => {
-    auth.getUser.mockResolvedValue({ data: { user: { id: 'u1' } } });
-    const response = await proxy(request('/inbox'));
-    expect(response.headers.get('x-middleware-next')).toBe('1');
+  it('allows the configured host and drops loopback when NEXT_PUBLIC_APP_URL is set', async () => {
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://mail.example.com');
+    vi.stubEnv('ALLOW_NO_PASSWORD', '1');
+    expect(passes(await proxy(request('/inbox', 'mail.example.com')))).toBe(true);
+    expect((await proxy(request('/inbox', 'localhost:3000'))).status).toBe(421);
   });
-
-  it('sends an authenticated sign-in to the inbox and keeps refreshed cookies', async () => {
-    auth.createClient.mockImplementation((_url, _key, options) => {
-      options.cookies.setAll([
-        { name: 'refreshed-session', value: 'fixture', options: { httpOnly: true } },
-      ]);
-      return { auth: { getUser: auth.getUser } };
-    });
-    auth.getUser.mockResolvedValue({ data: { user: { id: 'u1' } } });
-    const response = await proxy(request('/signin'));
-    expect(response.headers.get('location')).toBe('https://app.example/inbox');
-    expect(response.cookies.get('refreshed-session')?.value).toBe('fixture');
-  });
-
-  it('opens the demo inbox without authentication', async () => {
-    vi.stubEnv('APP_MODE', 'demo');
-    const response = await proxy(request('/inbox'));
-    expect(response.headers.get('x-middleware-next')).toBe('1');
-    expect(auth.createClient).not.toHaveBeenCalled();
+  it('refuses to serve a public address without a password', async () => {
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://mail.example.com');
+    expect((await proxy(request('/inbox', 'mail.example.com'))).status).toBe(503);
   });
 });
 
-it.each([
-  '/brands/gmail.svg',
-  '/brands/outlook.svg',
-  '/robots.txt',
-  '/sitemap.xml',
-  '/llms.txt',
-  '/index.md',
-  '/manifest.webmanifest',
-  '/og/evailbox.png',
-  '/apple-touch-icon.png',
-  '/icon-192.png',
-  '/icon-512.png',
-])('serves public discovery asset %s without authentication', async (path) => {
-  const response = await proxy(request(path));
-  expect(response.headers.get('x-middleware-next')).toBe('1');
-  expect(auth.createClient).not.toHaveBeenCalled();
+describe('without APP_PASSWORD', () => {
+  it('lets /inbox through', async () => {
+    expect(passes(await proxy(request('/inbox')))).toBe(true);
+  });
+  it('redirects /signin to /inbox', async () => {
+    expect(redirectsTo(await proxy(request('/signin')))).toBe('/inbox');
+  });
 });
 
-it.each(['/og/private', '/robots.txt/private', '/index.md/private', '/llms.txt/private'])(
-  'does not turn public asset paths into an auth bypass for %s',
-  async (path) => {
-    const response = await proxy(request(path));
-    expect(response.headers.get('location')).toBe('https://app.example/signin');
-    expect(auth.getUser).toHaveBeenCalledOnce();
-  },
-);
+describe('with APP_PASSWORD', () => {
+  beforeEach(() => {
+    vi.stubEnv('APP_PASSWORD', 'correct horse battery');
+  });
+  const cookie = () => `${session.SESSION_COOKIE}=${session.createSessionToken().token}`;
 
-it.each(['/pricing', '/api/inbox', '/api/auth/me', '/api/workspace/counts'])(
-  'leaves %s to public rendering or independent API authorization',
-  async (path) => {
-    expect((await proxy(request(path))).headers.get('x-middleware-next')).toBe('1');
-    expect(auth.createClient).not.toHaveBeenCalled();
-  },
-);
+  it('redirects /inbox to /signin without a cookie', async () => {
+    expect(redirectsTo(await proxy(request('/inbox')))).toBe('/signin');
+  });
+  it('lets /inbox through with a valid session cookie', async () => {
+    expect(passes(await proxy(request('/inbox', 'localhost:3000', cookie())))).toBe(true);
+  });
+  it('rejects a forged session cookie', async () => {
+    const forged = `${session.SESSION_COOKIE}=${Date.now() + 1e9}.AAAA`;
+    expect(redirectsTo(await proxy(request('/inbox', 'localhost:3000', forged)))).toBe('/signin');
+  });
+  it('shows /signin to signed-out visitors', async () => {
+    expect(passes(await proxy(request('/signin')))).toBe(true);
+  });
+  it('redirects /signin to /inbox with a valid cookie', async () => {
+    expect(redirectsTo(await proxy(request('/signin', 'localhost:3000', cookie())))).toBe('/inbox');
+  });
+  it('leaves /api/inbox to the handler, which checks auth itself', async () => {
+    expect(passes(await proxy(request('/api/inbox')))).toBe(true);
+  });
+});
