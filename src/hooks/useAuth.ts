@@ -18,9 +18,9 @@ export function useAuth() {
     retry: false,
   });
 }
-export async function signIn() {
-  const { url } = await api.post<{ url: string }>('/api/auth/signin');
-  window.location.assign(url);
+export async function signIn(password: string) {
+  await api.post('/api/auth/signin', { password });
+  window.location.assign('/inbox');
 }
 export async function signOut() {
   await api.post('/api/auth/signout');

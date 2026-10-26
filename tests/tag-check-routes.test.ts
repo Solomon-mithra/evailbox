@@ -7,15 +7,9 @@ const m = vi.hoisted(() => ({
   capture: vi.fn(),
   execute: vi.fn(),
   userUpdate: vi.fn(),
-  lock: vi.fn(),
-  after: vi.fn(),
-  publish: vi.fn(),
+  kick: vi.fn(),
   tagUpdate: vi.fn(),
   deleteDecisions: vi.fn(),
-}));
-vi.mock('next/server', async (original) => ({
-  ...(await original<typeof import('next/server')>()),
-  after: m.after,
 }));
 vi.mock('@/lib/auth', () => ({ requireUser: m.auth }));
 vi.mock('@/lib/db', () => ({
@@ -25,13 +19,11 @@ vi.mock('@/lib/db', () => ({
     $transaction: m.transaction,
   },
 }));
-vi.mock('@/lib/billing/state', () => ({ lockBillingUser: m.lock }));
 vi.mock('@/lib/tag-scope', async (original) => ({
   ...(await original<typeof import('@/lib/tag-scope')>()),
   capturePendingTagHistory: m.capture,
 }));
-vi.mock('@/lib/inngest/dispatch', () => ({ publishUserWork: m.publish }));
-vi.mock('@/lib/inngest/client', () => ({ backgroundConfigured: () => true }));
+vi.mock('@/lib/background', () => ({ kickWork: m.kick }));
 import { POST, PATCH } from '@/app/api/[...path]/route';
 const tx = {
   $executeRaw: m.execute,
@@ -72,9 +64,11 @@ it.each([undefined, 't'])(
       where: { id: 'u' },
       data: { workRequested: true, workRevision: { increment: 1 } },
     });
-    expect(m.publish).not.toHaveBeenCalled();
-    await m.after.mock.calls[0][0]();
-    expect(m.publish).toHaveBeenCalledWith('u');
+    // The in-process worker is only nudged after the durable request is saved.
+    expect(m.kick).toHaveBeenCalledOnce();
+    expect(m.userUpdate.mock.invocationCallOrder[0]).toBeLessThan(
+      m.kick.mock.invocationCallOrder[0],
+    );
   },
 );
 it('rejects a foreign or missing tag before changing history or queueing work', async () => {
@@ -82,13 +76,13 @@ it('rejects a foreign or missing tag before changing history or queueing work', 
   expect((await POST(request({ tagId: 'foreign' }))).status).toBe(404);
   expect(m.tag).toHaveBeenCalledWith({ where: { id: 'foreign', userId: 'u', workspace: 'WORK' } });
   expect(m.transaction).not.toHaveBeenCalled();
-  expect(m.after).not.toHaveBeenCalled();
+  expect(m.kick).not.toHaveBeenCalled();
 });
 it('does not dispatch if the durable scope cannot be saved', async () => {
   m.capture.mockRejectedValue(new Error('Could not save scope'));
   expect((await POST(request())).status).toBe(500);
   expect(m.userUpdate).not.toHaveBeenCalled();
-  expect(m.after).not.toHaveBeenCalled();
+  expect(m.kick).not.toHaveBeenCalled();
 });
 it.each([false, true])(
   'preserves metadata-only edits and invalidates changed matching rules: %s',

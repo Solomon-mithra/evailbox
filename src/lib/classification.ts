@@ -6,9 +6,8 @@ import { randomUUID } from 'node:crypto';
 import { currentModelVersion, type ClassificationInput } from './classification-version';
 import type { Classification } from './jev';
 import { classifyEmailAgainstTags } from './jev';
+import { jevApiKey } from './app-settings';
 import { ApiError } from './errors';
-import { billingEnabled } from './billing/config';
-import { lockBillingUser, processingAccess } from './billing/state';
 import { fetchMessageText } from './providers/content';
 import { withAccountCredentials } from './providers/credentials';
 import { withProviderDeadline } from './providers/http';
@@ -19,7 +18,6 @@ type BatchResult = {
   classified: number;
   errors: number;
   remaining: number;
-  billingBlocked?: true;
   rateLimited?: true;
   retryAfterSeconds?: number;
 };
@@ -91,9 +89,13 @@ type EmailSnapshot = Omit<ClassificationInput, 'body'> & {
     modelVersion: string;
   }[];
 };
+type ClassifiableTag = Omit<Tag, 'keywords' | 'senders'> & {
+  keywords: string[];
+  senders: string[];
+};
 type Evaluated = {
   email: EmailSnapshot;
-  tags: Tag[];
+  tags: ClassifiableTag[];
   hash: string;
   results: Record<string, Classification>;
 };
@@ -106,7 +108,7 @@ function backlogWhere(
   force = false,
 ) {
   // Unhashed rows wait for sync; a blank hash can never be recorded as current.
-  return Prisma.sql`e."userId"=${userId}::uuid AND e.workspace=${workspace}::"WorkspaceKind" AND e."inInbox"=true AND e."contentHash"<>''
+  return Prisma.sql`e."userId"=${userId} AND e.workspace=${workspace} AND e."inInbox"=true AND e."contentHash"<>''
     ${emailIds ? Prisma.sql`AND e.id IN (${Prisma.join(emailIds.length ? emailIds : [''])})` : Prisma.empty}
     AND EXISTS (SELECT 1 FROM tags t WHERE t."userId"=e."userId" AND t.workspace=e.workspace AND t.id IN (${Prisma.join(tagIds)})
       AND ${tagMatchScope()}
@@ -119,21 +121,27 @@ function backlogWhere(
       })`;
 }
 async function readCooldown() {
-  const rows = await db.$queryRaw<{ notBefore: Date }[]>(
-    Prisma.sql`SELECT "notBefore" AT TIME ZONE 'UTC' AS "notBefore" FROM processing_state WHERE id='jev'`,
-  );
-  return Math.max(0, Math.ceil(((rows[0]?.notBefore.getTime() ?? 0) - Date.now()) / 1000));
+  const state = await db.processingState.findUnique({ where: { id: 'jev' } });
+  return Math.max(0, Math.ceil(((state?.notBefore.getTime() ?? 0) - Date.now()) / 1000));
 }
 async function setCooldown(userId: string, delay: number) {
-  const retryAt = new Date(Date.now() + delay * 1000).toISOString();
-  const rows = await db.$queryRaw<{ notBefore: Date }[]>(Prisma.sql`
-    INSERT INTO processing_state(id,"notBefore") VALUES('jev',${retryAt}::timestamp)
-    ON CONFLICT(id) DO UPDATE SET "notBefore"=GREATEST(processing_state."notBefore",EXCLUDED."notBefore")
-    RETURNING "notBefore" AT TIME ZONE 'UTC' AS "notBefore"`);
-  await db.$executeRaw(
-    Prisma.sql`UPDATE users SET "workRequested"=true,"workNotBefore"=GREATEST("workNotBefore",${rows[0].notBefore.toISOString()}::timestamp) WHERE id=${userId}::uuid`,
-  );
-  return Math.max(delay, Math.ceil((rows[0].notBefore.getTime() - Date.now()) / 1000));
+  const retryAt = new Date(Date.now() + delay * 1000);
+  const notBefore = await db.$transaction(async (tx) => {
+    const current = await tx.processingState.findUnique({ where: { id: 'jev' } });
+    const notBefore = current && current.notBefore > retryAt ? current.notBefore : retryAt;
+    await tx.processingState.upsert({
+      where: { id: 'jev' },
+      create: { id: 'jev', notBefore },
+      update: { notBefore },
+    });
+    await tx.user.updateMany({ where: { id: userId }, data: { workRequested: true } });
+    await tx.user.updateMany({
+      where: { id: userId, workNotBefore: { lt: notBefore } },
+      data: { workNotBefore: notBefore },
+    });
+    return notBefore;
+  });
+  return Math.max(delay, Math.ceil((notBefore.getTime() - Date.now()) / 1000));
 }
 function metric(
   event: 'classification_batch' | 'classification_completed',
@@ -160,34 +168,26 @@ async function saveWave(
   const budget = deadline - Date.now() - 500;
   return db.$transaction(
     async (tx) => {
-      // Serialize allowance consumption with concurrent saves and subscription changes.
-      let billing;
-      if (billingEnabled()) {
-        await lockBillingUser(userId, tx);
-        billing = await processingAccess(userId, tx);
-        if (!billing.allowed) return none;
-      }
-      let slots = billing?.remaining ?? Infinity;
-      // Stable lock order avoids two workers acquiring the same rows in opposite order.
+      // SQLite serializes write transactions, so no row locks are needed here.
       const ids = [...new Set(evaluated.flatMap((item) => item.tags.map((tag) => tag.id)))].sort();
       const tags = await tx.$queryRaw<{ id: string; version: number }[]>(
-        Prisma.sql`SELECT id,version FROM tags WHERE "userId"=${userId}::uuid AND workspace=${workspace}::"WorkspaceKind" AND id IN (${Prisma.join(ids)}) ORDER BY id FOR SHARE`,
+        Prisma.sql`SELECT id,version FROM tags WHERE "userId"=${userId} AND workspace=${workspace} AND id IN (${Prisma.join(ids)})`,
       );
-      const emails = await tx.$queryRaw<
-        Pick<
-          EmailSnapshot,
-          'id' | 'contentHash' | 'firstClassifiedAt' | 'inInbox' | 'eligibleTagIds'
-        >[]
-      >(
-        Prisma.sql`SELECT e.id,e."contentHash",e."firstClassifiedAt",e."inInbox",
-          ARRAY(SELECT t.id FROM tags t WHERE t."userId"=e."userId" AND t.workspace=e.workspace
+      const emails = (
+        await tx.$queryRaw<
+          (Pick<EmailSnapshot, 'id' | 'contentHash' | 'firstClassifiedAt' | 'inInbox'> & {
+            eligibleTagIds: string;
+          })[]
+        >(
+          Prisma.sql`SELECT e.id,e."contentHash",e."firstClassifiedAt",e."inInbox",
+          (SELECT json_group_array(t.id) FROM tags t WHERE t."userId"=e."userId" AND t.workspace=e.workspace
             AND t.id IN (${Prisma.join(ids)}) AND ${tagMatchScope()}) AS "eligibleTagIds"
-          FROM emails e WHERE e."userId"=${userId}::uuid AND e.workspace=${workspace}::"WorkspaceKind" AND e.id IN (${Prisma.join(evaluated.map((item) => item.email.id).sort())}) ORDER BY e.id FOR UPDATE`,
-      );
+          FROM emails e WHERE e."userId"=${userId} AND e.workspace=${workspace} AND e.id IN (${Prisma.join(evaluated.map((item) => item.email.id))})`,
+        )
+      ).map((row) => ({ ...row, eligibleTagIds: JSON.parse(row.eligibleTagIds) as string[] }));
       if (currentModelVersion() !== modelVersion) return none;
       const rows: Prisma.Sql[] = [],
         accepted: { id: string; hash: string }[] = [];
-      let firstClassifications = 0;
       for (const item of evaluated) {
         const email = emails.find((row) => row.id === item.email.id);
         // Sync rewrites the hash when the message changes; reject results for older content.
@@ -198,28 +198,25 @@ async function saveWave(
             tags.some((current) => current.id === tag.id && current.version === tag.version),
         );
         if (!valid.length) continue;
-        if (!email.firstClassifiedAt && slots <= 0) continue;
-        if (!email.firstClassifiedAt) slots--;
         accepted.push({ id: email.id, hash: item.hash });
-        if (!email.firstClassifiedAt) firstClassifications++;
         for (const tag of valid) {
           const result = item.results[tag.id];
           rows.push(
-            Prisma.sql`(${randomUUID()},${userId}::uuid,${workspace}::"WorkspaceKind",${email.id},${tag.id},${tag.version},${item.hash},${modelVersion},${result.matched},${result.confidence},${result.decision},${result.reasoning})`,
+            Prisma.sql`(${randomUUID()},${userId},${workspace},${email.id},${tag.id},${tag.version},${item.hash},${modelVersion},${result.matched},${result.confidence},${result.decision},${result.reasoning})`,
           );
         }
       }
       if (!rows.length) return none;
       await tx.$executeRaw(Prisma.sql`INSERT INTO email_classifications(id,"userId",workspace,"emailId","tagId","tagVersion","contentHash","modelVersion",matched,confidence,decision,reasoning)
-      VALUES ${Prisma.join(rows)} ON CONFLICT("emailId","tagId") DO UPDATE SET "tagVersion"=EXCLUDED."tagVersion","contentHash"=EXCLUDED."contentHash","modelVersion"=EXCLUDED."modelVersion",matched=EXCLUDED.matched,confidence=EXCLUDED.confidence,decision=EXCLUDED.decision,reasoning=EXCLUDED.reasoning`);
-      await tx.$executeRaw(Prisma.sql`UPDATE emails e SET "contentHash"=v.hash,"firstClassifiedAt"=COALESCE(e."firstClassifiedAt",CURRENT_TIMESTAMP)
-      FROM (VALUES ${Prisma.join(accepted.map((item) => Prisma.sql`(${item.id},${item.hash})`))}) AS v(id,hash) WHERE e.id=v.id AND e."userId"=${userId}::uuid AND e.workspace=${workspace}::"WorkspaceKind"`);
-      if (firstClassifications)
-        await tx.$executeRaw(Prisma.sql`INSERT INTO monthly_usage("userId",month,emails) VALUES(${userId}::uuid,date_trunc('month',CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date,${firstClassifications})
-      ON CONFLICT("userId",month) DO UPDATE SET emails=monthly_usage.emails+EXCLUDED.emails`);
-      if (firstClassifications && billing && billing.access !== 'manual')
-        await tx.$executeRaw(Prisma.sql`INSERT INTO billing_usage("userId","periodStart",emails) VALUES(${userId}::uuid,${billing.start.toISOString()}::timestamp,${firstClassifications})
-          ON CONFLICT("userId","periodStart") DO UPDATE SET emails=billing_usage.emails+EXCLUDED.emails`);
+      VALUES ${Prisma.join(rows)} ON CONFLICT("emailId","tagId") DO UPDATE SET "tagVersion"=excluded."tagVersion","contentHash"=excluded."contentHash","modelVersion"=excluded."modelVersion",matched=excluded.matched,confidence=excluded.confidence,decision=excluded.decision,reasoning=excluded.reasoning`);
+      for (const item of accepted) {
+        const scope = { id: item.id, userId, workspace };
+        await tx.email.updateMany({ where: scope, data: { contentHash: item.hash } });
+        await tx.email.updateMany({
+          where: { ...scope, firstClassifiedAt: null },
+          data: { firstClassifiedAt: new Date() },
+        });
+      }
       return { saved: rows.length, accepted: accepted.length };
     },
     { maxWait: 500, timeout: Math.min(10000, budget - 500) },
@@ -239,18 +236,12 @@ export async function classifyEmails(
   userId: string,
   options: ClassificationOptions = {},
 ): Promise<BatchResult> {
-  let limit = options.limit ?? 100;
+  const limit = options.limit ?? 100;
   if (!Number.isInteger(limit) || limit < 0 || limit > 100)
     throw new Error('Invalid classification batch limit');
-  if (billingEnabled()) {
-    const access = await processingAccess(userId);
-    if (!access.allowed) return { classified: 0, errors: 0, remaining: 0, billingBlocked: true };
-    limit = Math.min(limit, access.remaining);
-  }
-  const result = await classifyBatch(userId, options, { remaining: limit });
-  if (billingEnabled() && !(await processingAccess(userId)).allowed)
-    return { ...result, remaining: 0, billingBlocked: true };
-  return result;
+  // Tagging is opt-in: without an AI key, mail still imports and nothing is queued for inference.
+  if (!(await jevApiKey())) return { classified: 0, errors: 0, remaining: 0 };
+  return classifyBatch(userId, options, { remaining: limit });
 }
 async function classifyBatch(
   userId: string,
@@ -280,10 +271,17 @@ async function classifyBatch(
   const started = Date.now(),
     workspace = options.workspace,
     modelVersion = currentModelVersion();
-  const tags = await db.tag.findMany({
-    where: { userId, workspace, ...(options.tagId ? { id: options.tagId } : {}) },
-    take: 30,
-  });
+  // Tag lists are Json columns in SQLite; tagSchema guarantees string arrays on write.
+  const tags = (
+    await db.tag.findMany({
+      where: { userId, workspace, ...(options.tagId ? { id: options.tagId } : {}) },
+      take: 30,
+    })
+  ).map((tag) => ({
+    ...tag,
+    keywords: tag.keywords as string[],
+    senders: tag.senders as string[],
+  }));
   if (options.tagId && !tags.length) throw new ApiError(404, 'NOT_FOUND', 'Tag not found.');
   if (!tags.length) return { classified: 0, errors: 0, remaining: 0 };
   const where = backlogWhere(
@@ -309,13 +307,22 @@ async function classifyBatch(
           true,
         )
       : where;
-    const emails = await db.$queryRaw<
-      EmailSnapshot[]
-    >(Prisma.sql`SELECT e.id,e."accountId",e."providerMessageId",e.subject,e.sender,e.snippet,e."contentHash",e."firstClassifiedAt",e."inInbox",
-      ARRAY(SELECT t.id FROM tags t WHERE t."userId"=e."userId" AND t.workspace=e.workspace
+    const emails = (
+      await db.$queryRaw<
+        (Omit<EmailSnapshot, 'eligibleTagIds' | 'classifications'> & {
+          eligibleTagIds: string;
+          classifications: string;
+        })[]
+      >(Prisma.sql`SELECT e.id,e."accountId",e."providerMessageId",e.subject,e.sender,e.snippet,e."contentHash",e."firstClassifiedAt",e."inInbox",
+      (SELECT json_group_array(t.id) FROM tags t WHERE t."userId"=e."userId" AND t.workspace=e.workspace
         AND t.id IN (${Prisma.join(tags.map((tag) => tag.id))}) AND ${tagMatchScope()}) AS "eligibleTagIds",
-      COALESCE((SELECT jsonb_agg(jsonb_build_object('tagId',c."tagId",'tagVersion',c."tagVersion",'contentHash',c."contentHash",'modelVersion',c."modelVersion")) FROM email_classifications c WHERE c."emailId"=e.id AND c."userId"=e."userId" AND c.workspace=e.workspace),'[]'::jsonb) AS classifications
-      FROM emails e WHERE ${selection} ORDER BY e."receivedAt" DESC,e.id DESC LIMIT ${budget.remaining}`);
+      (SELECT json_group_array(json_object('tagId',c."tagId",'tagVersion',c."tagVersion",'contentHash',c."contentHash",'modelVersion',c."modelVersion")) FROM email_classifications c WHERE c."emailId"=e.id AND c."userId"=e."userId" AND c.workspace=e.workspace) AS classifications
+      FROM emails e WHERE ${selection} ORDER BY e."receivedAt" DESC,e.id DESC LIMIT ${budget.remaining}`)
+    ).map((row) => ({
+      ...row,
+      eligibleTagIds: JSON.parse(row.eligibleTagIds) as string[],
+      classifications: JSON.parse(row.classifications) as EmailSnapshot['classifications'],
+    }));
     const pending = emails
       .map((email) => ({ email, hash: email.contentHash }))
       .map((item) => ({
@@ -355,7 +362,6 @@ async function classifyBatch(
       if (retryAfterSeconds || Date.now() + 3000 >= deadline) break;
       retryAfterSeconds = await readCooldown();
       if (retryAfterSeconds || Date.now() + 3000 >= deadline) break;
-      if (billingEnabled() && !(await processingAccess(userId)).allowed) break;
       const waveStart = Date.now();
       const wave = pending.slice(index, index + concurrency);
       const outcomes = await Promise.all(
@@ -419,10 +425,10 @@ async function classifyBatch(
       });
     }
   }
-  const [count] = await db.$queryRaw<{ remaining: number }[]>(
-    Prisma.sql`SELECT count(*)::int AS remaining FROM emails e WHERE ${where}`,
+  const [count] = await db.$queryRaw<{ remaining: bigint }[]>(
+    Prisma.sql`SELECT count(*) AS remaining FROM emails e WHERE ${where}`,
   );
-  const remaining = Math.max(count.remaining, unsaved);
+  const remaining = Math.max(Number(count.remaining), unsaved);
   metric('classification_completed', {
     durationMs: Date.now() - started,
     attempted,

@@ -1,5 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
+// Real app-settings against a throwaway SQLite file: no settings row, so the env fallback applies.
+vi.mock('@/lib/db', async () => ({ db: (await import('./helpers/sqlite')).testDb }));
+import { closeTestDb } from './helpers/sqlite';
 import {
   exchangeCode,
   fetchEmailPage,
@@ -43,6 +46,7 @@ beforeEach(() => {
   vi.stubEnv('NEXT_PUBLIC_MICROSOFT_CLIENT_ID', 'ms-id');
   vi.stubEnv('MICROSOFT_CLIENT_SECRET', 'ms-secret');
 });
+afterAll(closeTestDb);
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
@@ -50,29 +54,29 @@ afterEach(() => {
 describe('OAuth protocol', () => {
   it.each(['', 'replace-with-microsoft-client-secret', 'sb_secret_••••'])(
     'rejects Outlook before redirect when its secret is unconfigured (%s)',
-    (secret) => {
+    async (secret) => {
       vi.stubEnv('MICROSOFT_CLIENT_SECRET', secret);
-      expect(() =>
+      await expect(
         getAuthorizationUrl('OUTLOOK', {
           state: 'state',
           codeChallenge: 'challenge',
           redirectUri: 'https://app.example/callback',
         }),
-      ).toThrow('Outlook connection is not configured');
+      ).rejects.toThrow('Add your Microsoft OAuth client in Settings first.');
       expect(mockFetch).not.toHaveBeenCalled();
     },
   );
-  it('requests the least mailbox scopes needed for replies and actions, with PKCE', () => {
+  it('requests the least mailbox scopes needed for replies and actions, with PKCE', async () => {
     const options = {
       state: 'state',
       codeChallenge: 'challenge',
       redirectUri: 'https://app.example/callback',
     };
-    const google = new URL(getAuthorizationUrl('GMAIL', options));
+    const google = new URL(await getAuthorizationUrl('GMAIL', options));
     expect(google.searchParams.get('scope')).toBe('https://www.googleapis.com/auth/gmail.modify');
     expect(google.searchParams.get('code_challenge_method')).toBe('S256');
     expect(google.searchParams.get('access_type')).toBe('offline');
-    const microsoft = new URL(getAuthorizationUrl('OUTLOOK', options));
+    const microsoft = new URL(await getAuthorizationUrl('OUTLOOK', options));
     expect(microsoft.searchParams.get('scope')).toBe(
       'offline_access Mail.ReadWrite Mail.Send User.Read',
     );

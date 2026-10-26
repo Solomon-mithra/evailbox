@@ -3,19 +3,12 @@ import { tagMatchScope } from './tag-scope';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { db } from './db';
+import { jevApiKey } from './app-settings';
 import { encrypt, decrypt } from './crypto';
 import { ApiError } from './errors';
 import { workspaceIds } from './workspace-selection';
 import { currentModelVersion } from './classification-version';
-import { billingEnabled } from './billing/config';
-import { processingAccess } from './billing/state';
-import type {
-  EmailSummary,
-  InboxPage,
-  InboxCounts,
-  InboxProcessing,
-  InboxAccountProgress,
-} from '@/types';
+import type { EmailSummary, InboxPage, InboxCounts } from '@/types';
 
 const filtersSchema = z.object({
   workspace: z.enum(workspaceIds).default('PERSONAL'),
@@ -75,8 +68,8 @@ function needsMatch() {
 function where(userId: string, input: Input) {
   const conditions = [
     Prisma.sql`e."inInbox" = true`,
-    Prisma.sql`e."userId" = ${userId}::uuid`,
-    Prisma.sql`e.workspace = ${input.workspace}::"WorkspaceKind"`,
+    Prisma.sql`e."userId" = ${userId}`,
+    Prisma.sql`e.workspace = ${input.workspace}`,
   ];
   if (input.account) conditions.push(Prisma.sql`e."accountId" = ${input.account}`);
   if (input.tag)
@@ -86,13 +79,13 @@ function where(userId: string, input: Input) {
   if (input.needs === '1') conditions.push(needsMatch());
   if (input.range !== 'all')
     conditions.push(
-      Prisma.sql`e."receivedAt" >= ${new Date(Date.now() - (input.range === 'week' ? 7 : 30) * 86400000).toISOString()}::timestamp`,
+      Prisma.sql`e."receivedAt" >= ${new Date(Date.now() - (input.range === 'week' ? 7 : 30) * 86400000)}`,
     );
   if (input.search) {
     // Search is literal; user %/_ characters must not become wildcard scans.
     const search = `%${input.search.replace(/[\\%_]/g, '\\$&')}%`;
     conditions.push(
-      Prisma.sql`(e.subject ILIKE ${search} OR e.sender ILIKE ${search} OR e."senderName" ILIKE ${search})`,
+      Prisma.sql`(e.subject LIKE ${search} ESCAPE '\\' OR e.sender LIKE ${search} ESCAPE '\\' OR e."senderName" LIKE ${search} ESCAPE '\\')`,
     );
   }
   return Prisma.join(conditions, ' AND ');
@@ -103,20 +96,30 @@ export async function getInbox(user: { id: string }, params: URLSearchParams): P
   const cursor = decodeCursor(input, user.id);
   // An explicit projection prevents ever transferring stored bodies into the read process.
   const rows = await db.$queryRaw<
-    (Omit<EmailSummary, 'receivedAt'> & { receivedAt: Date })[]
+    (Omit<EmailSummary, 'receivedAt' | 'classifications'> & {
+      receivedAt: Date;
+      classifications: string;
+    })[]
   >(Prisma.sql`
     SELECT e.id, e."accountId", e.subject, e.sender, e."senderName", e.snippet,
-      e."receivedAt" AT TIME ZONE 'UTC' AS "receivedAt", e."isRead", e.handled, e."webUrl",
-      COALESCE((SELECT jsonb_agg(jsonb_build_object(
+      e."receivedAt", e."isRead", e.handled, e."webUrl",
+      (SELECT json_group_array(json_object(
         'id', c.id, 'tagId', c."tagId", 'tagVersion', c."tagVersion", 'matched', c.matched,
         'confidence', c.confidence, 'reasoning', c.reasoning, 'decision', c.decision,
-        'tag', jsonb_build_object('id', t.id, 'name', t.name, 'priority', t.priority, 'version', t.version)
-      ) ORDER BY c.id) ${classificationJoin()}), '[]'::jsonb) AS classifications
+        'tag', json_object('id', t.id, 'name', t.name, 'priority', t.priority, 'version', t.version)
+      ) ORDER BY c.id) ${classificationJoin()}) AS classifications
     FROM emails e WHERE ${where(user.id, input)}
-      ${cursor ? Prisma.sql`AND (e."receivedAt", e.id) < (${cursor.receivedAt}::timestamp, ${cursor.id})` : Prisma.empty}
+      ${cursor ? Prisma.sql`AND (e."receivedAt", e.id) < (${new Date(cursor.receivedAt)}, ${cursor.id})` : Prisma.empty}
     ORDER BY e."receivedAt" DESC, e.id DESC LIMIT 51
   `);
-  const emails = rows.slice(0, 50).map((e) => ({ ...e, receivedAt: e.receivedAt.toISOString() }));
+  const emails = rows.slice(0, 50).map((e) => ({
+    ...e,
+    receivedAt: e.receivedAt.toISOString(),
+    // SQLite JSON carries booleans as 0/1.
+    classifications: (JSON.parse(e.classifications) as EmailSummary['classifications']).map(
+      (c) => ({ ...c, matched: Boolean(c.matched) }),
+    ),
+  }));
   const last = emails.at(-1);
   return {
     emails,
@@ -154,15 +157,6 @@ function isInitialImport(cursor: string | null, hasSynced: boolean) {
     return false;
   }
 }
-type InboxCountsRow = Omit<InboxCounts, 'processing'> & {
-  processing: Omit<InboxProcessing, 'accounts'> & {
-    accounts: (Omit<InboxAccountProgress, 'initialSync'> & {
-      cursor: string | null;
-      hasSynced: boolean;
-    })[];
-  };
-};
-
 export async function getInboxCounts(
   user: { id: string },
   params: URLSearchParams,
@@ -176,82 +170,93 @@ export async function getInboxCounts(
     range: 'all' as const,
     needs: '0' as const,
   };
-  const rows = await db.$queryRaw<InboxCountsRow[]>(Prisma.sql`
-    WITH email_progress AS (
-      SELECT e."accountId", EXISTS (
-          SELECT 1 FROM tags t WHERE t."userId"=e."userId" AND t.workspace=e.workspace
-            AND ${tagMatchScope()}
-            AND NOT EXISTS (
-              SELECT 1 FROM email_classifications c WHERE c."emailId"=e.id
-                AND c."userId"=e."userId" AND c.workspace=e.workspace AND c."tagId"=t.id
-                AND c."tagVersion"=t.version AND e."contentHash"<>''
-                AND c."contentHash"=e."contentHash" AND c."modelVersion"=${currentModelVersion()}
-            )
-        ) AS pending,
-        EXISTS (
-          SELECT 1 FROM email_classifications c JOIN tags t ON t.id=c."tagId"
-            AND t."userId"=c."userId" AND t.workspace=c.workspace
-          WHERE c."emailId"=e.id AND c."userId"=e."userId" AND c.workspace=e.workspace
-            AND c."tagVersion"=t.version AND e."contentHash"<>''
-            AND c."contentHash"=e."contentHash" AND c."modelVersion"=${currentModelVersion()}
-        ) AS checked
-      FROM emails e WHERE ${where(user.id, base)}
-    ), account_progress AS (
-      SELECT "accountId", count(*)::int AS imported,
-        count(*) FILTER (WHERE pending)::int AS remaining,
-        count(*) FILTER (WHERE NOT pending AND checked)::int AS tagged
-      FROM email_progress GROUP BY "accountId"
-    ), progress AS (
-      SELECT COALESCE(sum(imported), 0)::int AS imported,
-        COALESCE(sum(tagged), 0)::int AS tagged,
-        COALESCE(sum(remaining), 0)::int AS remaining FROM account_progress
-    )
-    SELECT
-      (SELECT jsonb_build_object(
-        'imported', p.imported, 'tagged', p.tagged, 'remaining', p.remaining,
-        'importing', EXISTS (SELECT 1 FROM email_accounts a WHERE a."userId"=${user.id}::uuid
-          AND a.workspace=${input.workspace}::"WorkspaceKind" AND a."syncRequested"=true),
-        'paused', EXISTS (SELECT 1 FROM users u WHERE u.id=${user.id}::uuid AND u."workNotBefore">CURRENT_TIMESTAMP)
-          OR EXISTS (SELECT 1 FROM processing_state WHERE id='jev' AND "notBefore">CURRENT_TIMESTAMP),
-        'accounts', COALESCE((SELECT jsonb_agg(jsonb_build_object(
-          'id', a.id, 'email', a.email, 'imported', COALESCE(ap.imported, 0),
-          'tagged', COALESCE(ap.tagged, 0),
-          'remaining', COALESCE(ap.remaining, 0), 'importing', a."syncRequested",
-          'syncing', a."syncRequested" AND a."syncLeaseId" IS NOT NULL
-            AND COALESCE(a."syncLeaseUntil">CURRENT_TIMESTAMP, false),
-          'cursor', a.cursor, 'hasSynced', a."lastSync" IS NOT NULL
-        ) ORDER BY a."createdAt", a.id)
-          FROM email_accounts a LEFT JOIN account_progress ap ON ap."accountId"=a.id
-          WHERE a."userId"=${user.id}::uuid AND a.workspace=${input.workspace}::"WorkspaceKind"
-        ), '[]'::jsonb)
-      ) FROM progress p) AS processing,
-      (SELECT count(*)::int FROM emails e WHERE ${where(user.id, input)}) AS total,
-      (SELECT count(*)::int FROM emails e WHERE ${where(user.id, base)} AND ${needsMatch()}) AS "needsTotal",
-      COALESCE((SELECT jsonb_object_agg(counts."tagId", counts.n) FROM (
-        SELECT c."tagId", count(*)::int AS n FROM email_classifications c
-        JOIN tags t ON t.id = c."tagId" AND t."userId" = c."userId" AND t.workspace = c.workspace
-        JOIN emails e ON e.id = c."emailId" AND e."userId" = c."userId" AND e.workspace = c.workspace
-        WHERE e."inInbox" = true AND e."contentHash" <> '' AND c."contentHash" = e."contentHash" AND c."modelVersion" = ${currentModelVersion()}
-          AND c."userId" = ${user.id}::uuid AND c.workspace = ${input.workspace}::"WorkspaceKind"
-          AND c.matched = true AND c."tagVersion" = t.version GROUP BY c."tagId"
-      ) counts), '{}'::jsonb) AS "tagCounts"
-  `);
-  const { accounts, ...processing } = rows[0].processing;
-  // Checkpoints stay server-side. Queue/AI backlog is not active mailbox sync.
-  const result: InboxCounts = {
-    ...rows[0],
+  const version = currentModelVersion(),
+    now = new Date();
+  const [progressRows, accounts, owner, cooldown, totals, tagRows, aiKey] = await Promise.all([
+    db.$queryRaw<{ accountId: string; imported: bigint; remaining: bigint; tagged: bigint }[]>(
+      Prisma.sql`
+      WITH email_progress AS (
+        SELECT e."accountId", EXISTS (
+            SELECT 1 FROM tags t WHERE t."userId"=e."userId" AND t.workspace=e.workspace
+              AND ${tagMatchScope()}
+              AND NOT EXISTS (
+                SELECT 1 FROM email_classifications c WHERE c."emailId"=e.id
+                  AND c."userId"=e."userId" AND c.workspace=e.workspace AND c."tagId"=t.id
+                  AND c."tagVersion"=t.version AND e."contentHash"<>''
+                  AND c."contentHash"=e."contentHash" AND c."modelVersion"=${version}
+              )
+          ) AS pending,
+          EXISTS (
+            SELECT 1 FROM email_classifications c JOIN tags t ON t.id=c."tagId"
+              AND t."userId"=c."userId" AND t.workspace=c.workspace
+            WHERE c."emailId"=e.id AND c."userId"=e."userId" AND c.workspace=e.workspace
+              AND c."tagVersion"=t.version AND e."contentHash"<>''
+              AND c."contentHash"=e."contentHash" AND c."modelVersion"=${version}
+          ) AS checked
+        FROM emails e WHERE ${where(user.id, base)}
+      )
+      SELECT "accountId", count(*) AS imported,
+        count(*) FILTER (WHERE pending) AS remaining,
+        count(*) FILTER (WHERE NOT pending AND checked) AS tagged
+      FROM email_progress GROUP BY "accountId"`,
+    ),
+    db.emailAccount.findMany({
+      where: { userId: user.id, workspace: input.workspace },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        email: true,
+        syncRequested: true,
+        syncLeaseId: true,
+        syncLeaseUntil: true,
+        cursor: true,
+        lastSync: true,
+      },
+    }),
+    db.user.findUnique({ where: { id: user.id }, select: { workNotBefore: true } }),
+    db.processingState.findUnique({ where: { id: 'jev' } }),
+    db.$queryRaw<{ total: bigint; needsTotal: bigint }[]>(Prisma.sql`
+      SELECT (SELECT count(*) FROM emails e WHERE ${where(user.id, input)}) AS total,
+        (SELECT count(*) FROM emails e WHERE ${where(user.id, base)} AND ${needsMatch()}) AS "needsTotal"`),
+    db.$queryRaw<{ tagId: string; n: bigint }[]>(Prisma.sql`
+      SELECT c."tagId", count(*) AS n FROM email_classifications c
+      JOIN tags t ON t.id = c."tagId" AND t."userId" = c."userId" AND t.workspace = c.workspace
+      JOIN emails e ON e.id = c."emailId" AND e."userId" = c."userId" AND e.workspace = c.workspace
+      WHERE e."inInbox" = true AND e."contentHash" <> '' AND c."contentHash" = e."contentHash" AND c."modelVersion" = ${version}
+        AND c."userId" = ${user.id} AND c.workspace = ${input.workspace}
+        AND c.matched = true AND c."tagVersion" = t.version GROUP BY c."tagId"`),
+    jevApiKey(),
+  ]);
+  const progress = new Map(progressRows.map((row) => [row.accountId, row]));
+  const accountProgress = accounts.map((account) => {
+    const row = progress.get(account.id);
+    const importing = account.syncRequested;
+    return {
+      id: account.id,
+      email: account.email,
+      imported: Number(row?.imported ?? 0),
+      tagged: Number(row?.tagged ?? 0),
+      remaining: Number(row?.remaining ?? 0),
+      importing,
+      syncing: importing && account.syncLeaseId !== null && (account.syncLeaseUntil ?? now) > now,
+      // Checkpoints stay server-side. Queue/AI backlog is not active mailbox sync.
+      initialSync: importing && isInitialImport(account.cursor, account.lastSync !== null),
+    };
+  });
+  const sum = (key: 'imported' | 'tagged' | 'remaining') =>
+    progressRows.reduce((total, row) => total + Number(row[key]), 0);
+  return {
     processing: {
-      ...processing,
-      accounts: accounts.map(({ cursor, hasSynced, ...account }) => ({
-        ...account,
-        initialSync: account.importing && isInitialImport(cursor, hasSynced),
-      })),
+      imported: sum('imported'),
+      tagged: sum('tagged'),
+      remaining: sum('remaining'),
+      importing: accounts.some((account) => account.syncRequested),
+      paused: (owner?.workNotBefore ?? now) > now || (cooldown?.notBefore ?? now) > now,
+      accounts: accountProgress,
+      aiConfigured: !!aiKey,
     },
+    total: Number(totals[0].total),
+    needsTotal: Number(totals[0].needsTotal),
+    tagCounts: Object.fromEntries(tagRows.map((row) => [row.tagId, Number(row.n)])),
   };
-  if (billingEnabled() && result.processing) {
-    const access = await processingAccess(user.id);
-    result.processing.billingBlocked = !access.allowed;
-    result.processing.paused ||= !access.allowed;
-  }
-  return result;
 }

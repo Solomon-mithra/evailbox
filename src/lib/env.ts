@@ -1,36 +1,18 @@
 import { z } from 'zod';
-const present = z
-  .string()
-  .trim()
-  .min(1)
-  .refine(
-    (v) => !v.includes('replace-with') && !v.includes('your-project') && !v.includes('•'),
-    'Replace placeholder',
-  );
-const common = z.object({
+// Nothing is required: OAuth and AI keys live in Settings, and the encryption key self-generates.
+const schema = z.object({
   APP_MODE: z.enum(['demo', 'live']).default('live'),
-  NEXT_PUBLIC_APP_URL: z.url(),
+  NEXT_PUBLIC_APP_URL: z.url().optional(),
+  ENCRYPTION_SECRET_KEY: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/i)
+    .optional(),
+  APP_PASSWORD: z.string().min(12, 'APP_PASSWORD must be at least 12 characters').optional(),
 });
-const live = common.extend({
-  SUPABASE_URL: z.url().refine((v) => !v.includes('your-project')),
-  SUPABASE_PUBLISHABLE_KEY: present,
-  SUPABASE_SECRET_KEY: present,
-  DATABASE_URL: z.string().startsWith('postgres'),
-  DIRECT_URL: z.string().startsWith('postgres'),
-  NEXT_PUBLIC_GOOGLE_CLIENT_ID: present,
-  GOOGLE_CLIENT_SECRET: present,
-  JEV_GATEWAY_URL: z.url(),
-  JEV_API_KEY: present,
-  ENCRYPTION_SECRET_KEY: z.string().regex(/^[a-f0-9]{64}$/i),
-  CRON_SECRET: present.min(32),
-});
-// Optional services validate credentials when used, rather than blocking core startup.
-export function isConfigured(value: string | undefined): boolean {
-  return present.safeParse(value).success;
-}
 export function validateEnv(source: Record<string, string | undefined> = process.env) {
-  const base = common.safeParse(source);
-  const result = base.success && base.data.APP_MODE === 'demo' ? base : live.safeParse(source);
+  // Treat empty values from copied .env templates as unset.
+  const set = Object.fromEntries(Object.entries(source).filter(([, v]) => v !== ''));
+  const result = schema.safeParse(set);
   if (!result.success)
     throw new Error(
       `Invalid environment: ${result.error.issues.map((i) => i.path.join('.')).join(', ')}`,
@@ -39,4 +21,34 @@ export function validateEnv(source: Record<string, string | undefined> = process
 }
 export function isDemo() {
   return process.env.APP_MODE === 'demo';
+}
+/** Public origin used for OAuth redirect URIs; must match the provider app registration. */
+export function appUrl() {
+  return (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000').replace(/\/$/, '');
+}
+/**
+ * DNS-rebinding guard: only the configured host, or loopback on the same port, may reach the app.
+ * Without it a hostile page that rebinds its domain to 127.0.0.1 could read an unlocked inbox.
+ */
+export function allowedHost(host: string | null) {
+  if (!host) return false;
+  const app = new URL(appUrl());
+  if (host === app.host) return true;
+  const port = app.port || (app.protocol === 'https:' ? '443' : '80');
+  return ['localhost', '127.0.0.1', '[::1]'].some((name) => host === `${name}:${port}`);
+}
+
+/**
+ * Fail closed: an instance served on, or bound to, a non-loopback address must have APP_PASSWORD,
+ * unless the operator explicitly opts out (e.g. a private Tailscale network).
+ */
+export function unlockedPublicInstance() {
+  if (isDemo() || process.env.APP_PASSWORD || process.env.ALLOW_NO_PASSWORD === '1') return false;
+  const loopback = ['localhost', '127.0.0.1', '[::1]', '::1'];
+  // HOST is the interface the npm scripts bind to; anything else is reachable by other machines,
+  // and non-browser clients can send any Host header.
+  return (
+    !loopback.includes(new URL(appUrl()).hostname) ||
+    !loopback.includes(process.env.HOST || '127.0.0.1')
+  );
 }

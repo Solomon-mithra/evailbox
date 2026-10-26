@@ -1,5 +1,5 @@
 import 'server-only';
-import { WORK_BATCH_SIZE } from '../inngest/config';
+import { WORK_BATCH_SIZE } from './sync-policy';
 import { z } from 'zod';
 import { authHeaders, ProviderHttpError, requestJson } from './http';
 import type { ProviderEmail, SyncPage } from './types';

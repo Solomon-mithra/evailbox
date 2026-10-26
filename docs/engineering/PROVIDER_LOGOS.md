@@ -1,6 +1,6 @@
 # Mail provider logos
 
-The landing page and Accounts view (including its embedded version in Settings) use local, unmodified SVG artwork through the shared ProviderLogo component. Each logo is contained within a 20 × 20px box on the landing page and a 28 × 28px box in Accounts, preserving its aspect ratio and original colors. Both logo asset routes are public so they load for signed-out visitors. The images are decorative for screen readers because adjacent text names the provider.
+The Accounts view (including its embedded version in Settings) use local, unmodified SVG artwork through the shared ProviderLogo component. Each logo is contained within a 20 × 20px box on the landing page and a 28 × 28px box in Accounts, preserving its aspect ratio and original colors. Both logo asset routes are public so they load for signed-out visitors. The images are decorative for screen readers because adjacent text names the provider.
 
 | Asset                       | Source                                                                                                                                                                                                                        |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

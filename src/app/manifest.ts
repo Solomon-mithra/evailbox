@@ -1,12 +1,11 @@
 import type { MetadataRoute } from 'next';
-import { site } from '@/lib/site';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
     id: '/',
-    name: site.name,
-    short_name: site.name,
-    description: site.description,
+    name: 'evailbox',
+    short_name: 'evailbox',
+    description: 'Self-hosted Gmail and Outlook triage with AI tags.',
     lang: 'en',
     start_url: '/inbox',
     scope: '/',

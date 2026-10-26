@@ -87,9 +87,7 @@ export async function syncMailboxes(
         const createIds = result.createIds ? new Set(result.createIds) : undefined;
         await db.$transaction(
           async (tx) => {
-            const [{ observedAt }] = await tx.$queryRaw<
-              { observedAt: Date }[]
-            >`SELECT clock_timestamp() AS "observedAt"`;
+            const observedAt = new Date();
             if (result.reset) rescanStartedAt = observedAt;
             for (const message of result.messages) {
               // Hash the full message for freshness checks; the body itself is never stored.
@@ -130,11 +128,8 @@ export async function syncMailboxes(
             }
             // Retain the source and its account relation while an editable/sent draft exists.
             // Everything retained is hidden from inbox reads and future classification work.
-            async function removeDisappeared(where: Prisma.EmailWhereInput, condition: Prisma.Sql) {
-              // Parent-row locks also serialize FK-backed draft creation with deletion.
-              await tx.$queryRaw(
-                Prisma.sql`SELECT id FROM emails WHERE "userId"=${userId}::uuid AND "accountId"=${account.id} AND ${condition} ORDER BY id FOR UPDATE`,
-              );
+            async function removeDisappeared(where: Prisma.EmailWhereInput) {
+              // SQLite serializes this write transaction with draft creation; no row locks needed.
               await tx.email.updateMany({
                 where: { ...where, replyDraft: { isNot: null } },
                 data: { inInbox: false },
@@ -142,23 +137,17 @@ export async function syncMailboxes(
               await tx.email.deleteMany({ where: { ...where, replyDraft: { is: null } } });
             }
             if (result.deletedIds?.length)
-              await removeDisappeared(
-                {
-                  userId,
-                  accountId: account.id,
-                  providerMessageId: { in: result.deletedIds },
-                },
-                Prisma.sql`"providerMessageId" IN (${Prisma.join(result.deletedIds)})`,
-              );
+              await removeDisappeared({
+                userId,
+                accountId: account.id,
+                providerMessageId: { in: result.deletedIds },
+              });
             if (!result.hasMore && rescanStartedAt)
-              await removeDisappeared(
-                {
-                  userId,
-                  accountId: account.id,
-                  lastSeenAt: { lt: rescanStartedAt },
-                },
-                Prisma.sql`"lastSeenAt" < ${rescanStartedAt.toISOString()}::timestamp`,
-              );
+              await removeDisappeared({
+                userId,
+                accountId: account.id,
+                lastSeenAt: { lt: rescanStartedAt },
+              });
             await tx.emailAccount.update({
               where: { id: account.id, userId, syncLeaseId: leaseId },
               data: {

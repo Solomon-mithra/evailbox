@@ -4,10 +4,8 @@ const m = vi.hoisted(() => ({
   find: vi.fn(),
   update: vi.fn(),
   list: vi.fn(),
-  send: vi.fn(),
   sync: vi.fn(),
   classify: vi.fn(),
-  signal: vi.fn(),
 }));
 vi.mock('@/lib/db', () => ({
   db: {
@@ -22,27 +20,18 @@ vi.mock('@/lib/work-queue', () => ({
   requestWork: m.request,
   withUserWorkLease: (_id: string, fn: () => Promise<unknown>) => fn(),
 }));
-vi.mock('@/lib/inngest/client', async (original) => ({
-  ...(await original<typeof import('../src/lib/inngest/client')>()),
-  inngest: { send: m.send },
-}));
 vi.mock('@/lib/sync', () => ({ syncMailboxes: m.sync }));
 vi.mock('@/lib/classification', () => ({ classifyEmails: m.classify }));
-vi.mock('@/lib/realtime', () => ({ signalInboxChange: m.signal }));
-import { enqueueUserWork, recoverPendingWork } from '@/lib/inngest/dispatch';
 import {
   fetchWorkBatch,
   classifyWorkBatch,
   finishWorkBatch,
   processInboxBatch,
-} from '@/lib/inngest/work';
+} from '@/lib/work-batch';
 
 beforeEach(() => {
   vi.resetAllMocks();
   vi.stubEnv('APP_MODE', 'live');
-  vi.stubEnv('INNGEST_EVENT_KEY', 'test-key');
-  vi.stubEnv('INNGEST_SIGNING_KEY', 'test-signing-key');
-  vi.stubEnv('INNGEST_DEV', '');
   m.find.mockResolvedValue({
     id: 'u',
     workRevision: 7,
@@ -51,40 +40,12 @@ beforeEach(() => {
     workNotBefore: new Date(0),
   });
   m.update.mockResolvedValue({ count: 1 });
-  m.send.mockResolvedValue({ ids: ['event'] });
-  m.signal.mockResolvedValue(undefined);
 });
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.useRealTimers();
 });
 
-it('durably requests work before publishing and never processes inline', async () => {
-  const result = await enqueueUserWork('u', { sync: true, workspace: 'WORK' });
-  expect(result).toEqual({ queued: true, pending: true, workerAvailable: true });
-  expect(m.request.mock.invocationCallOrder[0]).toBeLessThan(m.send.mock.invocationCallOrder[0]);
-  expect(m.sync).not.toHaveBeenCalled();
-  expect(m.classify).not.toHaveBeenCalled();
-  expect(m.send).toHaveBeenCalledWith(
-    expect.objectContaining({
-      id: 'work:u:7',
-      name: 'evailbox/work.requested',
-      data: { userId: 'u' },
-    }),
-  );
-});
-it('keeps durable work recoverable when dispatch is unavailable', async () => {
-  m.send.mockRejectedValue(new Error('private upstream detail'));
-  expect(await enqueueUserWork('u')).toMatchObject({ queued: true, workerAvailable: false });
-  expect(m.request).toHaveBeenCalledOnce();
-  expect(m.update).not.toHaveBeenCalled();
-});
-it('does not pretend a missing worker is connected', async () => {
-  vi.stubEnv('INNGEST_EVENT_KEY', '');
-  vi.stubEnv('INNGEST_DEV', '');
-  expect(await enqueueUserWork('u')).toMatchObject({ workerAvailable: false });
-  expect(m.send).not.toHaveBeenCalled();
-});
 it('fetch and inference are independently resumable', async () => {
   m.sync.mockResolvedValue({ synced: 25, errors: 0, pending: false });
   await fetchWorkBatch('u');
@@ -124,40 +85,7 @@ it('failed processing remains requested with backoff', async () => {
   expect(args.data.workRequested).toBe(true);
   expect(args.data.workNotBefore.getTime()).toBeGreaterThan(Date.now() + 55_000);
 });
-it('recovery publishes references only and preserves flags on publication errors', async () => {
-  m.list.mockResolvedValue([{ id: 'u', workRevision: 7 }]);
-  m.send.mockRejectedValue(new Error('offline'));
-  const result = await recoverPendingWork();
-  expect(result).toMatchObject({ dispatched: 0, errors: 1 });
-  expect(m.update).not.toHaveBeenCalled();
-});
-
-it('does not claim the worker is available with only an event key', async () => {
-  vi.stubEnv('INNGEST_SIGNING_KEY', '');
-  expect(await enqueueUserWork('u')).toMatchObject({ queued: true, workerAvailable: false });
-  expect(m.request).toHaveBeenCalledOnce();
-  expect(m.send).not.toHaveBeenCalled();
-});
-it('recovery can publish mailbox ingestion during an inference cooldown without changing that cooldown', async () => {
-  m.list.mockResolvedValue([{ id: 'u', workRevision: 7 }]);
-  await recoverPendingWork();
-  const where = m.list.mock.calls[0][0].where;
-  expect(where.workNotBefore).toBeUndefined();
-  expect(where.AND).toEqual(
-    expect.arrayContaining([
-      {
-        OR: [
-          { workNotBefore: { lte: expect.any(Date) } },
-          { accounts: { some: { syncRequested: true } } },
-        ],
-      },
-    ]),
-  );
-  expect(m.send).toHaveBeenCalledWith([expect.objectContaining({ data: { userId: 'u' } })]);
-  expect(m.update).not.toHaveBeenCalled();
-});
-
-it('shares transient bodies inside one bounded turn and signals metadata before inference', async () => {
+it('shares transient bodies inside one bounded turn', async () => {
   let bodies: Map<string, unknown>;
   m.sync.mockImplementation(async (_user, _account, _deadline, options) => {
     expect(options.maxPages).toBe(1);
@@ -168,7 +96,6 @@ it('shares transient bodies inside one bounded turn and signals metadata before 
   m.classify.mockImplementation(async (_user, options) => {
     expect(options.bodies).toBe(bodies);
     expect(options.limit).toBe(20);
-    expect(m.signal).toHaveBeenCalled();
     return { classified: 20, errors: 0, remaining: 0 };
   });
   const result = await processInboxBatch('u');
@@ -228,5 +155,4 @@ it('discards transient bodies and sanitizes errors when classification crashes a
   m.classify.mockRejectedValue(new Error('PRIVATE BODY in upstream response'));
   await expect(processInboxBatch('u')).rejects.toThrow('Inbox batch could not complete');
   expect(bodies!.size).toBe(0);
-  expect(m.signal).toHaveBeenCalled();
 });

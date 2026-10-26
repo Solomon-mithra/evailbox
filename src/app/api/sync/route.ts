@@ -1,4 +1,3 @@
-import { after } from 'next/server';
 import { z } from 'zod';
 import { requireUser } from '@/lib/auth';
 import { db } from '@/lib/db';
@@ -6,8 +5,7 @@ import { route, ok, jsonBody, ApiError } from '@/lib/errors';
 import { idSchema } from '@/lib/validation';
 import { workspaceIds } from '@/lib/workspace-selection';
 import { requestWork } from '@/lib/work-queue';
-import { publishUserWork } from '@/lib/inngest/dispatch';
-import { backgroundConfigured } from '@/lib/inngest/client';
+import { kickWork } from '@/lib/background';
 export const runtime = 'nodejs';
 export const POST = route(async (request) => {
   const user = await requireUser();
@@ -27,8 +25,6 @@ export const POST = route(async (request) => {
   )
     throw new ApiError(404, 'NOT_FOUND', 'Account not found.');
   await requestWork(user.id, { sync: true, accountId, workspace });
-  after(async () => {
-    await publishUserWork(user.id);
-  });
-  return ok({ queued: true, pending: true, workerAvailable: backgroundConfigured() }, 202);
+  kickWork();
+  return ok({ queued: true, pending: true, workerAvailable: true }, 202);
 });

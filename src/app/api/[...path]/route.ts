@@ -1,8 +1,17 @@
 import { withAccountLock } from '@/lib/providers/credentials';
-import { NextResponse, after } from 'next/server';
+import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
-import { requireUser, supabaseServer, adminAuth } from '@/lib/auth';
+import { cookies } from 'next/headers';
+import { requireUser } from '@/lib/auth';
+import {
+  SESSION_COOKIE,
+  checkPassword,
+  createSessionToken,
+  loginWait,
+  passwordProtected,
+  recordLogin,
+} from '@/lib/session';
 import { db } from '@/lib/db';
 import { route, ok, ApiError, jsonBody } from '@/lib/errors';
 import { tagSchema, preferencesSchema, classifySchema, idSchema } from '@/lib/validation';
@@ -15,20 +24,13 @@ import {
 } from '@/lib/workspace';
 import { getInbox, getInboxCounts } from '@/lib/inbox';
 import { beginConnection, finishConnection } from '@/lib/oauth';
-import { requestDailySync } from '@/lib/work-queue';
-import { publishUserWork, recoverPendingWork } from '@/lib/inngest/dispatch';
-import { backgroundConfigured } from '@/lib/inngest/client';
+import { kickWork } from '@/lib/background';
+import { requestWork } from '@/lib/work-queue';
+import { appSettingsSchema, publicAppSettings, updateAppSettings } from '@/lib/app-settings';
 import { POST as queueSync } from '@/app/api/sync/route';
-import { constantTimeEqual, decrypt } from '@/lib/crypto';
-import { isDemo } from '@/lib/env';
+import { appUrl, isDemo } from '@/lib/env';
 import { workspaceIds } from '@/lib/workspace-selection';
-import {
-  cleanupMailboxSubscription,
-  requestMailboxSubscriptionRenewal,
-} from '@/lib/mailbox-subscriptions';
 import { emailContentResponse } from '@/lib/email-content';
-import { lockBillingUser } from '@/lib/billing/state';
-import { cancelBillingForDeletion, clearBillingDeletion } from '@/lib/billing/service';
 import { capturePendingTagHistory, tagMatchScope } from '@/lib/tag-scope';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -40,53 +42,35 @@ async function dispatch(request: Request) {
     method = request.method;
   if (path === 'health' && method === 'GET')
     return ok({ status: 'ok', mode: isDemo() ? 'demo' : 'live' });
-  if (path.startsWith('cron/') && method === 'GET') {
-    if (
-      !process.env.CRON_SECRET ||
-      !constantTimeEqual(
-        request.headers.get('authorization') ?? '',
-        `Bearer ${process.env.CRON_SECRET}`,
-      )
-    )
-      throw new ApiError(401, 'UNAUTHORIZED', 'Invalid cron authorization.');
-    if (isDemo()) return ok({ skipped: true, reason: 'demo' });
-    if (path === 'cron/work') return ok(await recoverPendingWork());
-    if (path === 'cron/sync') {
-      await requestDailySync();
-      return ok(await recoverPendingWork());
-    }
-    throw new ApiError(404, 'NOT_FOUND', 'Endpoint not found.');
-  }
   if (isDemo())
     throw new ApiError(503, 'DEMO_MODE', 'This action needs a configured live workspace.');
   if (path === 'auth/signin' && method === 'POST') {
-    const supabase = await supabaseServer();
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/callback`,
-        skipBrowserRedirect: true,
-      },
+    const { password } = z.object({ password: z.string().max(500) }).parse(await jsonBody(request));
+    const wait = loginWait();
+    if (wait)
+      throw new ApiError(
+        429,
+        'TOO_MANY_ATTEMPTS',
+        `Too many attempts. Try again in ${wait} seconds.`,
+      );
+    const valid = passwordProtected() && checkPassword(password);
+    recordLogin(valid);
+    if (!valid) throw new ApiError(401, 'INVALID_PASSWORD', 'That password is not correct.');
+    const { token, maxAge } = createSessionToken();
+    (await cookies()).set(SESSION_COOKIE, token, {
+      httpOnly: true,
+      secure: appUrl().startsWith('https:'),
+      sameSite: 'lax',
+      path: '/',
+      maxAge,
     });
-    if (error || !data.url)
-      throw new ApiError(502, 'AUTH_FAILED', 'Google sign-in is temporarily unavailable.');
-    return ok({ url: data.url });
-  }
-  if (path === 'auth/callback' && method === 'GET') {
-    const code = url.searchParams.get('code');
-    if (!code)
-      return NextResponse.redirect(new URL('/signin?error=oauth', process.env.NEXT_PUBLIC_APP_URL));
-    const supabase = await supabaseServer();
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    return NextResponse.redirect(
-      new URL(error ? '/signin?error=oauth' : '/callback', process.env.NEXT_PUBLIC_APP_URL),
-    );
+    return ok({ signedIn: true });
   }
   const user = await requireUser();
-  if (path === 'auth/me' && method === 'GET') return ok(user);
+  if (path === 'auth/me' && method === 'GET')
+    return ok({ ...user, canSignOut: passwordProtected() });
   if (path === 'auth/signout' && method === 'POST') {
-    const { error } = await (await supabaseServer()).auth.signOut();
-    if (error) throw new ApiError(502, 'SIGNOUT_FAILED', 'Could not sign out.');
+    (await cookies()).delete(SESSION_COOKIE);
     return ok({ signedOut: true });
   }
   const workspace = z.enum(workspaceIds).parse(url.searchParams.get('workspace') ?? 'PERSONAL');
@@ -115,28 +99,23 @@ async function dispatch(request: Request) {
     );
   if (path === 'tags' && method === 'POST') {
     const data = tagSchema.parse(await jsonBody(request));
-    after(async () => {
-      await publishUserWork(user.id);
-    });
-    return ok(
-      await db.$transaction(async (tx) => {
-        await lockBillingUser(user.id, tx);
-        if ((await tx.tag.count({ where: { userId: user.id, workspace } })) >= 30)
-          throw new ApiError(409, 'TAG_LIMIT', 'You can create up to 30 tags.');
-        const created = await tx.tag.create({
-          data: { ...data, userId: user.id, workspace, nameKey: data.name.toLowerCase() },
-        });
-        await tx.user.update({
-          where: { id: user.id },
-          data: {
-            workRequested: true,
-            workRevision: { increment: 1 },
-          },
-        });
-        return created;
-      }, tagTransactionOptions),
-      201,
-    );
+    const created = await db.$transaction(async (tx) => {
+      if ((await tx.tag.count({ where: { userId: user.id, workspace } })) >= 30)
+        throw new ApiError(409, 'TAG_LIMIT', 'You can create up to 30 tags.');
+      const created = await tx.tag.create({
+        data: { ...data, userId: user.id, workspace, nameKey: data.name.toLowerCase() },
+      });
+      await tx.user.update({
+        where: { id: user.id },
+        data: {
+          workRequested: true,
+          workRevision: { increment: 1 },
+        },
+      });
+      return created;
+    }, tagTransactionOptions);
+    kickWork();
+    return ok(created, 201);
   }
   if (/^tags\/[^/]+$/.test(path)) {
     const id = idSchema.parse(path.split('/')[1]);
@@ -145,40 +124,35 @@ async function dispatch(request: Request) {
     if (method === 'GET') return ok(tag);
     if (method === 'PATCH') {
       const patch = tagSchema.partial().parse(await jsonBody(request));
-      after(async () => {
-        await publishUserWork(user.id);
-      });
-      return ok(
-        await db.$transaction(async (tx) => {
-          await lockBillingUser(user.id, tx);
-          const current = await tx.tag.findUniqueOrThrow({
-            where: { id, userId: user.id, workspace },
+      const updated = await db.$transaction(async (tx) => {
+        const current = await tx.tag.findUniqueOrThrow({
+          where: { id, userId: user.id, workspace },
+        });
+        const matchingChanged = (['name', 'prompt', 'keywords', 'senders'] as const).some(
+          (key) =>
+            patch[key] !== undefined && JSON.stringify(patch[key]) !== JSON.stringify(current[key]),
+        );
+        const updated = await tx.tag.update({
+          where: { id, userId: user.id, workspace },
+          data: {
+            ...patch,
+            ...(patch.name ? { nameKey: patch.name.toLowerCase() } : {}),
+            ...(matchingChanged ? { version: { increment: 1 } } : {}),
+          },
+        });
+        if (matchingChanged) {
+          await tx.emailClassification.deleteMany({
+            where: { tagId: id, userId: user.id, workspace },
           });
-          const matchingChanged = (['name', 'prompt', 'keywords', 'senders'] as const).some(
-            (key) =>
-              patch[key] !== undefined &&
-              JSON.stringify(patch[key]) !== JSON.stringify(current[key]),
-          );
-          const updated = await tx.tag.update({
-            where: { id, userId: user.id, workspace },
-            data: {
-              ...patch,
-              ...(patch.name ? { nameKey: patch.name.toLowerCase() } : {}),
-              ...(matchingChanged ? { version: { increment: 1 } } : {}),
-            },
+          await tx.user.update({
+            where: { id: user.id },
+            data: { workRequested: true, workRevision: { increment: 1 } },
           });
-          if (matchingChanged) {
-            await tx.emailClassification.deleteMany({
-              where: { tagId: id, userId: user.id, workspace },
-            });
-            await tx.user.update({
-              where: { id: user.id },
-              data: { workRequested: true, workRevision: { increment: 1 } },
-            });
-          }
-          return updated;
-        }, tagTransactionOptions),
-      );
+        }
+        return updated;
+      }, tagTransactionOptions);
+      kickWork();
+      return ok(updated);
     }
     if (method === 'DELETE') {
       await db.tag.delete({ where: { id, userId: user.id, workspace } });
@@ -195,9 +169,15 @@ async function dispatch(request: Request) {
   if (/^accounts\/(gmail|outlook)\/(auth|callback)$/.test(path) && method === 'GET') {
     const [, provider, action] = path.split('/');
     const p = provider === 'gmail' ? 'GMAIL' : 'OUTLOOK';
-    return action === 'auth'
-      ? beginConnection(p, user.id, workspace)
-      : finishConnection(p, user.id, url);
+    if (action === 'callback') return finishConnection(p, user.id, url);
+    try {
+      return await beginConnection(p, user.id, workspace);
+    } catch (error) {
+      // Browser navigation: send the user to the missing keys instead of a JSON error.
+      if (error instanceof ApiError && error.code.endsWith('_NOT_CONFIGURED'))
+        return NextResponse.redirect(new URL(`/settings?setup=${provider}`, appUrl()));
+      throw error;
+    }
   }
   if (/^accounts\/[^/]+$/.test(path) && method === 'DELETE') {
     const id = idSchema.parse(path.split('/')[1]);
@@ -207,23 +187,9 @@ async function dispatch(request: Request) {
     });
     if (!account) throw new ApiError(404, 'NOT_FOUND', 'Account not found.');
     await withAccountLock(user.id, workspace, id, async (fresh) => {
-      // Disconnect must remain possible even when provider credentials are invalid.
-      try {
-        await cleanupMailboxSubscription(user.id, id, Date.now() + 10000, {
-          account: fresh,
-          token: decrypt(fresh.accessToken),
-        });
-      } catch {
-        /* best effort */
-      }
-      try {
-        await db.emailAccount.deleteMany({
-          where: { id, userId: user.id, workspace, syncLeaseId: fresh.syncLeaseId },
-        });
-      } catch (error) {
-        await requestMailboxSubscriptionRenewal(user.id, id, workspace).catch(() => undefined);
-        throw error;
-      }
+      await db.emailAccount.deleteMany({
+        where: { id, userId: user.id, workspace, syncLeaseId: fresh.syncLeaseId },
+      });
     });
     return ok({ deleted: true });
   }
@@ -245,27 +211,25 @@ async function dispatch(request: Request) {
     )
       throw new ApiError(404, 'NOT_FOUND', 'Tag not found.');
     await db.$transaction(async (tx) => {
-      await lockBillingUser(user.id, tx);
       if (!ids) {
         await capturePendingTagHistory(tx, user.id, workspace, data.tagId);
       } else if (ids.length) {
         // Explicit reruns must not erase old matches that the worker is no longer allowed to check.
-        await tx.$executeRaw(Prisma.sql`DELETE FROM email_classifications c USING emails e,tags t
-          WHERE c."emailId"=e.id AND c."tagId"=t.id AND c."userId"=e."userId"
+        await tx.$executeRaw(Prisma.sql`DELETE FROM email_classifications WHERE id IN (
+          SELECT c.id FROM email_classifications c JOIN emails e ON c."emailId"=e.id JOIN tags t ON c."tagId"=t.id
+          WHERE c."userId"=e."userId"
             AND c.workspace=e.workspace AND t."userId"=e."userId" AND t.workspace=e.workspace
-            AND e."userId"=${user.id}::uuid AND e.workspace=${workspace}::"WorkspaceKind"
+            AND e."userId"=${user.id} AND e.workspace=${workspace}
             AND e.id IN (${Prisma.join(ids)}) AND ${tagMatchScope()}
-            ${data.tagId ? Prisma.sql`AND t.id=${data.tagId}` : Prisma.empty}`);
+            ${data.tagId ? Prisma.sql`AND t.id=${data.tagId}` : Prisma.empty})`);
       }
       await tx.user.update({
         where: { id: user.id },
         data: { workRequested: true, workRevision: { increment: 1 } },
       });
     }, tagTransactionOptions);
-    after(async () => {
-      await publishUserWork(user.id);
-    });
-    return ok({ queued: true, pending: true, workerAvailable: backgroundConfigured() }, 202);
+    kickWork();
+    return ok({ queued: true, pending: true, workerAvailable: true }, 202);
   }
   if (path === 'emails' && method === 'GET') return ok(await getWorkspace(user, url.searchParams));
   if (/^emails\/[^/]+$/.test(path)) {
@@ -307,19 +271,22 @@ async function dispatch(request: Request) {
       }),
     );
   }
+  if (path === 'app-settings' && method === 'GET') return ok(await publicAppSettings());
+  if (path === 'app-settings' && method === 'PATCH') {
+    const patch = appSettingsSchema.parse(await jsonBody(request));
+    const saved = await updateAppSettings(patch);
+    // A new AI key unblocks tagging for everything already imported.
+    if (patch.jevApiKey) {
+      await requestWork(user.id);
+      kickWork();
+    }
+    return ok(saved);
+  }
   if (path === 'user' && method === 'DELETE') {
     const { confirm } = z.object({ confirm: z.literal('DELETE') }).parse(await jsonBody(request));
     void confirm;
-    await cancelBillingForDeletion(user.id);
-    try {
-      const { error } = await adminAuth().deleteUser(user.id);
-      if (error) throw error;
-    } catch {
-      await clearBillingDeletion(user.id);
-      throw new ApiError(502, 'DELETE_FAILED', 'Account deletion could not finish. Try again.');
-    }
+    // Resets all mail data; OAuth keys in Settings are kept. The owner row is recreated on demand.
     await db.user.deleteMany({ where: { id: user.id } });
-    await (await supabaseServer()).auth.signOut();
     return ok({ deleted: true });
   }
   throw new ApiError(404, 'NOT_FOUND', 'Endpoint not found.');

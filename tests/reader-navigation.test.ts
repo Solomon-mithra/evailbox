@@ -59,7 +59,10 @@ vi.mock('next/link', () => ({
     return React.createElement('a', { href: props.href }, props.children);
   },
 }));
-vi.mock('@/components/providers', () => ({ useDemo: () => state.demo }));
+vi.mock('@/components/providers', () => ({
+  useDemo: () => state.demo,
+  useSessionIdentity: () => ({ id: 'u', email: 'owner@localhost', canSignOut: true }),
+}));
 vi.mock('@/hooks/useFetch', () => ({
   useWorkspaceMetadata: () => ({
     data: {

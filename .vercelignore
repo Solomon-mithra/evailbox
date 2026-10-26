@@ -1,8 +1,0 @@
-.env*
-.git/
-node_modules/
-.next/
-.vercel/
-*.tsbuildinfo
-test-results/
-playwright-report/

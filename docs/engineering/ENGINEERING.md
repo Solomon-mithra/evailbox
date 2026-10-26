@@ -1,51 +1,55 @@
-# Current architecture
+# Architecture
 
-Updated 2026-09-26. The authoritative implementation is in `src/`, `prisma/schema.prisma` and `prisma/migrations/`. This document intentionally avoids duplicating every schema field or API implementation.
+The source in `src/`, `prisma/schema.prisma` and `prisma/migrations/` is authoritative. This document explains the boundaries that the code relies on.
+
+## Stack
+
+| Layer          | Implementation                                                                              |
+| -------------- | ------------------------------------------------------------------------------------------- |
+| Framework      | Next.js 16 App Router, Node.js 22, `src/proxy.ts`, Node API routes                          |
+| Interface      | React 19, strict TypeScript, Tailwind CSS 4, Radix primitives, Lucide, local Inter font     |
+| Client data    | TanStack Query 5 with bounded private IndexedDB summary persistence and polling             |
+| Database       | SQLite through Prisma 6 (`data/evailbox.db` by default)                                     |
+| Mail providers | Direct Gmail REST and Microsoft Graph requests with deadlines                               |
+| Inference      | AI SDK 7 `experimental_evaluate`, AI Gateway evaluation model `typesafe-ai/jev`             |
+| Background     | In-process loop in `src/lib/background.ts`, started from `src/instrumentation.ts`           |
+| Encryption     | Node AES-256-GCM; key from `ENCRYPTION_SECRET_KEY` or generated once into `data/secret.key` |
+| Validation     | Zod, Vitest against real SQLite, TypeScript, ESLint, Prettier                               |
+
+## Identity and access
+
+One instance has one owner (`LOCAL_USER` in `src/lib/auth.ts`). With no `APP_PASSWORD`, anyone who can reach the server is the owner, so the npm scripts bind to `127.0.0.1` by default and the proxy refuses to serve a non-loopback `NEXT_PUBLIC_APP_URL` or `HOST` without a password unless `ALLOW_NO_PASSWORD=1`. The Host allowlist alone only stops browsers; non-browser clients on the network can send any Host header. With a password set, `src/proxy.ts` redirects pages to `/signin` and API handlers return 401 without a valid session cookie. The cookie MAC is keyed by the server secret and the password, so changing either signs everyone out. `APP_PASSWORD` must be at least 12 characters. Failed sign-ins back off globally, up to 15 minutes between attempts; existing sessions are unaffected and a restart clears the counter.
+
+`allowedHost` in `src/lib/env.ts` admits only the configured `NEXT_PUBLIC_APP_URL` host, or loopback on the same port. The proxy refuses other `Host` headers for every route, and mutating requests must also send an allowed `Origin`. Together these block DNS-rebinding pages and cross-site requests against an unlocked local instance.
+
+## Keys and settings
+
+`app_settings` holds one row: Google and Microsoft client IDs, encrypted client secrets, the Microsoft tenant, and the encrypted AI Gateway key. `GET /api/app-settings` returns only client IDs, the tenant, `hasSecret` flags and the redirect URIs to register. Secrets are write-only. `src/lib/app-settings.ts` resolves credentials from the row first and environment variables second. A missing provider client turns a connect attempt into a redirect to the matching Settings row.
 
 ## Interactive path
 
-Next.js App Router serves the public homepage, pricing and sign-in, with authenticated inbox, tags, accounts, drafts and settings. `src/proxy.ts` refreshes/verifies session routing; server APIs verify the user independently and scope reads/writes to user and workspace. Supabase sign-in and provider mailbox OAuth are separate flows.
+Inbox summaries, metadata, counts, settings and message content have separate read paths. The inbox query uses stable `receivedAt`/`id` cursor pagination with 50 summaries, filtering inside SQLite against version-current classifications. The cursor is encrypted and bound to the filters. Focus refresh and polling keep views current; active work polls every two seconds.
 
-Inbox summaries, metadata, counts, settings and full message content have separate read paths. The inbox query uses stable receivedAt/id cursor pagination with 50 summaries, filtering inside Postgres and version-current classifications. The cursor is encrypted and bound to the user, workspace and filters.
-
-TanStack Query/IndexedDB persist bounded summary queries only, partitioned by verified user and workspace. Bodies, tokens and auth sessions are excluded. Logout, disconnect and deletion clear the relevant private cache. Supabase private broadcasts contain invalidation metadata, not message data. Focus refresh and polling recover missed signals; active work polls every two seconds.
-
-A one-second row hover or keyboard focus preloads message detail and sanitized HTML. Clicks reuse pending/completed requests. Browser memory holds at most three speculative bodies plus an open reader, evicting inactive bodies after two minutes; the summary persister excludes these queries. Up to 32 unique HTTPS images per message warm without referrers, and the reader opens with images enabled. Background tag/usage invalidations do not reload an open body. Failed requests and provider-preview fallbacks retry on open. The sandboxed iframe and document CSP remain in force; hover never marks mail read or uses AI quota.
+Message bodies are fetched live for reading, sanitized, and rendered in a sandboxed iframe with its own CSP. Bodies are never written to the database or the persistent browser cache.
 
 ## Background path
 
-1. OAuth completion, sync/tag changes or authenticated mailbox notifications persist requested-work flags and increment revisions.
-2. Inngest receives a user reference. Failed publication leaves a recoverable database outbox.
-3. The worker reads work state and renews due mailbox subscriptions.
-4. One `import-and-tag-page` step imports one provider page, commits summaries/cursor, signals readers and classifies up to 20 emails across workspaces. The 40-second deadline is shared.
-5. A caller-owned in-memory map carries body/hash pairs by account/message identity. Only a matching content hash can reuse the body; the map is cleared before return, including failures. Counts, never bodies, cross step boundaries.
-6. A completion step preserves newer work revisions, signals readers and schedules a continuation if work remains. Cooldowns pause inference while import can continue; failed ingestion observes backoff.
+1. Connecting an account, syncing, or editing tags sets durable work flags on the user and accounts, increments revisions, and calls `kickWork()`.
+2. The worker also ticks every 30 seconds and marks all accounts for sync every two minutes.
+3. Each turn (`processInboxBatch` in `src/lib/work-batch.ts`) imports one provider page, saves summaries and the cursor in one transaction, then classifies up to 20 emails within a shared 40-second deadline. Bodies fetched during import are reused from memory and discarded.
+4. `finishWorkBatch` preserves newer revisions and failure backoff. The loop continues while pages remain, up to 10 turns per user per tick.
 
-Per-user concurrency is 1. `INBOX_WORK_CONCURRENCY` defaults to 5 and is bounded to 100; available plan capacity still applies. Each user's `JEV_CONCURRENCY` defaults to 4 (maximum 8). Inngest fairness across keys is best-effort, not a guaranteed strict round-robin sequence. Least-recently-synced accounts are imported first within a user.
-
-Initial provider pages request 20 messages. Gmail history pages count history records, which may reference more than 20 changed messages. New connections import at most 100 existing Inbox messages. Gmail then catches up from its captured history ID. Outlook downloads only lightweight delta references for the older tail to obtain a valid checkpoint; only the first 100 existing messages are hydrated and saved. New arrivals continue after that, while updates to older unknown messages cannot create local rows. [Provider contracts](PROVIDERS.md) describe cursor recovery.
-
-Inngest schedules recovery every minute, missed-mailbox sync every 15 minutes, and subscription renewal hourly. Vercel cron configs are empty. Legacy synchronous helper functions are not the active hosted scheduling path.
+Without an AI key, classification is skipped and the inbox says so. Saving a key requests work for the existing backlog. An AI Gateway 429 stores a shared cooldown in `processing_state`; imports continue during the cooldown.
 
 ## Durability and freshness
 
-Provider cursors advance in the same transaction as saved message changes. Account leases protect sync/token rotation; user leases guard classification. Revisions prevent a worker from clearing newer requests. Expired cursors trigger resumable rescans that preserve existing triage and reconcile disappeared rows only at completion. Messages needed by reply drafts can remain hidden instead of being deleted immediately.
-
-Classification identity includes tag version, bounded-input content hash and model/policy version. One Jev call evaluates an email against its missing tag questions. Negative and uncertain decisions are cached. Guarded batch transactions reject stale content/tag/model results and increment monthly first-classification usage without counting the same email twice.
-
-A shared `processing_state` Jev cooldown stops further dispatch after rate limiting; in-flight waves may finish. Retries preserve completed results. A crash after provider inference but before commit may incur another paid call: exactly-once billing is not guaranteed. A retry after import committed may need to refetch a body.
+Provider cursors advance in the same transaction as message changes. Account leases serialize sync, token refresh, replies and disconnect. Expired cursors trigger resumable rescans that keep existing triage and remove disappeared rows only when the rescan completes. A classification counts as current only while its tag version, content hash and model version all match. Negative and uncertain decisions are cached too. SQLite runs in WAL mode so reads proceed during worker writes; run a single server process.
 
 ## Data and privacy boundaries
 
-- Stored: message summaries/flags/hash, classifications, tags, account identity/encrypted OAuth tokens, cursors/work state, plan/usage data and explicit user-written reply drafts.
-- Not stored: imported full email bodies in Postgres, Inngest step results, the persistent browser summary cache or application logs.
-- Bodies are fetched transiently for import/classification or reading; a bounded sample and tag criteria are sent to Jev. Provider retention controls are requested by the adapter; external processing still occurs.
-- Provider/SDK error payloads may include private mail. Only sanitized error metadata may leave workers or enter logs.
-- RLS protects direct client access. Prisma uses privileged server credentials, so application-level tenant/workspace filters and relational constraints remain essential.
-- Disconnect/user deletion cleanup is explicit; provider subscription cleanup is best effort. Preserve the encryption key for existing tokens.
+- Stored: message summaries, flags and content hashes; classifications; tags; account identity and encrypted OAuth tokens; cursors and work state; encrypted keys; user-written reply drafts.
+- Not stored: email bodies, in the database, logs or the persistent browser cache.
+- Sent to the AI Gateway: a bounded body sample, subject, sender, snippet and tag criteria, only when a key is configured.
+- Provider and SDK errors can contain private mail, so only sanitized metadata is logged.
 
-## Product boundaries
-
-Manual replies, read/archive/trash actions require explicit user actions and granted provider scopes. Ambiguous sends are reconciled rather than automatically retried. Personal/Work rules never mix. Notifications/digests are retired; legacy database delivery tables are inert. Stripe billing and usage enforcement activate only with `BILLING_ENABLED=true`. Trials and paid periods gate AI processing; reading and replies remain available. Billing writes and classification saves lock the owning user so first-classification allowances are consumed atomically. Webhooks fetch current Stripe state under that lock and require an active subscription with a paid latest invoice. See [billing](BILLING.md).
-
-Use [status](../STATUS.md) for evidence, [environment](ENVIRONMENT.md) for variable names, [service setup](SERVICE_SETUP.md) for activation and [runbook](RUNBOOK.md) for operations. Tests and local key configuration do not establish production readiness.
+See [providers](PROVIDERS.md) for OAuth, sync and Jev details, and [workspaces](WORKSPACES.md) for Personal/Work isolation.

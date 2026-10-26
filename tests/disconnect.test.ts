@@ -2,22 +2,12 @@ import { beforeEach, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({
   find: vi.fn(),
   remove: vi.fn(),
-  cleanup: vi.fn(),
-  renew: vi.fn(),
   lock: vi.fn(),
   decrypt: vi.fn(),
 }));
-vi.mock('@/lib/auth', () => ({
-  requireUser: async () => ({ id: 'u' }),
-  adminAuth: vi.fn(),
-  supabaseServer: vi.fn(),
-}));
+vi.mock('@/lib/auth', () => ({ requireUser: async () => ({ id: 'u' }) }));
 vi.mock('@/lib/db', () => ({ db: { emailAccount: { findFirst: m.find, deleteMany: m.remove } } }));
 vi.mock('@/lib/providers/credentials', () => ({ withAccountLock: m.lock }));
-vi.mock('@/lib/mailbox-subscriptions', () => ({
-  cleanupMailboxSubscription: m.cleanup,
-  requestMailboxSubscriptionRenewal: m.renew,
-}));
 vi.mock('@/lib/crypto', () => ({ decrypt: m.decrypt, constantTimeEqual: vi.fn() }));
 import { DELETE } from '../src/app/api/[...path]/route';
 beforeEach(() => {
@@ -46,7 +36,7 @@ it('scopes lookup and holds account lease through provider cleanup and local rem
   expect(m.remove).toHaveBeenCalledWith({
     where: { id: 'a', userId: 'u', workspace: 'WORK', syncLeaseId: 'held' },
   });
-  expect(m.cleanup.mock.invocationCallOrder[0]).toBeLessThan(m.remove.mock.invocationCallOrder[0]);
+  expect(m.lock.mock.invocationCallOrder[0]).toBeLessThan(m.remove.mock.invocationCallOrder[0]);
 });
 it('disconnects locally even when provider credentials can no longer decrypt', async () => {
   m.decrypt.mockImplementation(() => {
@@ -60,9 +50,7 @@ it('does not touch another workspace account', async () => {
   expect((await DELETE(request())).status).toBe(404);
   expect(m.lock).not.toHaveBeenCalled();
 });
-it('requests renewal again if local deletion fails after cleanup', async () => {
+it('reports failure if local deletion fails', async () => {
   m.remove.mockRejectedValue(new Error('offline'));
-  m.renew.mockResolvedValue(undefined);
   expect((await DELETE(request())).status).toBe(500);
-  expect(m.renew).toHaveBeenCalledWith('u', 'a', 'WORK');
 });
