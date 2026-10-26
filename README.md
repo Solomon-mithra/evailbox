@@ -150,14 +150,14 @@ Keys saved in **Settings** take precedence. For containers, you can supply them 
 
 ```mermaid
 flowchart LR
-  you([Your browser]) --> app
-  subgraph app [evailbox: one Node.js process]
-    ui[Next.js UI and API] --> db[(SQLite)]
-    worker[Background worker] --> db
+  browser(["Your browser"]) --> ui
+  subgraph app ["evailbox: one Node.js process"]
+    ui["Next.js UI and API"] --> db[("SQLite")]
+    worker["Background worker"] --> db
   end
-  worker -- OAuth 2.0 + PKCE --> gmail[Gmail API]
-  worker -- OAuth 2.0 + PKCE --> graph[Microsoft Graph]
-  worker -- excerpt + tag rules --> gateway[AI Gateway: Jev]
+  worker -->|"OAuth 2.0 + PKCE"| gmailApi["Gmail API"]
+  worker -->|"OAuth 2.0 + PKCE"| msGraph["Microsoft Graph"]
+  worker -->|"excerpt + tag rules"| aiGateway["AI Gateway: Jev"]
 ```
 
 1. Connecting an account, pressing **Sync now** or editing a tag records durable work in SQLite and wakes the worker.
